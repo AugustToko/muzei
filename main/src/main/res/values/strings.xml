@@ -18,14 +18,17 @@
     <string name="app_description">Muzei Live Wallpaper</string>
 
     <string name="settings_title">Muzei Settings</string>
+    <string name="settings_home_screen_title">Home Screen</string>
+    <string name="settings_lock_screen_title">Lock Screen</string>
     <string name="settings_blur_amount_title">Blur</string>
     <string name="settings_dim_amount_title">Dim</string>
     <string name="settings_grey_amount_title">Grey</string>
-    <string name="settings_blur_on_lockscreen">Apply blur on lockscreen</string>
 
     <string name="notification_new_wallpaper">New wallpaper</string>
     <string name="notification_new_wallpaper_channel_name">New wallpapers</string>
     <string name="notification_settings">Notification Settings</string>
+    <string name="notification_settings_failed">Opening notification settings failed,
+        please adjust Muzei\'s notification settings from the Settings app.</string>
     <string name="notification_settings_done">Done</string>
     <string name="notification_settings_moved_title">Notification settings have moved</string>
     <string name="notification_settings_moved_text">Review your notification settings</string>
@@ -84,9 +87,18 @@
     <string name="tutorial_subtitle">Double touch the blurred wallpaper on your home screen to temporarily focus</string>
 
     <string name="source_provider_name">Legacy Sources</string>
+    <string name="source_warning_title">Activate a Legacy Source?</string>
+    <string name="source_warning_message">Legacy Sources load on their own schedule and don\'t
+        use Auto Advance. This may lead to additional data usage if the Legacy Source does not
+        have its own WiFi only setting.</string>
+    <string name="source_warning_positive">Continue</string>
+    <string name="source_warning_learn_more">Learn more</string>
+    <string name="source_warning_negative">Cancel</string>
     <string name="get_more_sources">Get more sources</string>
     <string name="get_more_sources_description">Change your wallpaper entirely with
         additional sources installed from the Google Play Store</string>
+    <string name="action_link_effects">Home 🔗 Lock</string>
+    <string name="action_link_effects_off">Home &amp; Lock aren\'t linked together</string>
     <string name="reset_advanced_settings_defaults">Reset sliders</string>
     <string name="play_store_not_found">Unable to open Play Store.</string>
 
@@ -97,6 +109,22 @@
     <string name="missing_resources_message">Muzei is in an invalid state. Please uninstall Muzei and install it from the Google Play Store to repair your installation.</string>
     <string name="missing_resources_open">Open Play Store</string>
     <string name="missing_resources_quit">Close Muzei</string>
+
+    <string name="tasker_setting_dialog_title">Select action</string>
+    <string name="tasker_action_select_provider">Select %s</string>
+
+    <string name="actions_gestures">Customize Gestures</string>
+    <string name="gestures_title">Gestures</string>
+    <string name="gestures_double_tap_title">Double Tap</string>
+    <string name="gestures_double_tap_description">Double tap the blurred wallpaper on your home
+        screen to trigger the action of your choice.</string>
+    <string name="gestures_three_finger_tap_title">Three Finger Tap</string>
+    <string name="gestures_three_finger_tap_description">Tap the blurred wallpaper on your home
+        screen with three fingers to trigger the action of your choice.</string>
+    <string name="gestures_tap_action_temporary_disable">Temporarily disable effects</string>
+    <string name="gestures_tap_action_next">Next Artwork</string>
+    <string name="gestures_tap_action_view_details">View Artwork Details</string>
+    <string name="gestures_tap_action_none">None</string>
 
     <string name="about_title">About Muzei</string>
     <string name="about_body"><![CDATA[

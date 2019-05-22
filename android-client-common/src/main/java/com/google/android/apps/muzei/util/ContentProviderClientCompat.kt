@@ -16,6 +16,7 @@
 
 package com.google.android.apps.muzei.util
 
+import android.annotation.SuppressLint
 import android.content.ContentProviderClient
 import android.content.Context
 import android.database.Cursor
@@ -24,9 +25,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.os.RemoteException
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.withContext
-
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.FileNotFoundException
 import java.io.InputStream
 
@@ -49,10 +49,19 @@ class ContentProviderClientCompat private constructor(
             method: String,
             arg: String? = null,
             extras: Bundle? = null
-    ): Bundle? = withContext(CommonPool) {
-        mContentProviderClient.call(method, arg, extras)
+    ): Bundle? = withContext(Dispatchers.Default) {
+        try {
+            mContentProviderClient.call(method, arg, extras)
+        } catch (e: Exception) {
+            if (e is RemoteException) {
+                throw e
+            } else {
+                throw RemoteException(e.message)
+            }
+        }
     }
 
+    @SuppressLint("Recycle")
     @Throws(RemoteException::class)
     suspend fun query(
             url: Uri,
@@ -60,17 +69,33 @@ class ContentProviderClientCompat private constructor(
             selection: String? = null,
             selectionArgs: Array<String>? = null,
             sortOrder: String? = null
-    ): Cursor? = withContext(CommonPool) {
-        return@withContext mContentProviderClient.query(
-                url, projection, selection, selectionArgs, sortOrder)
+    ): Cursor? = withContext(Dispatchers.Default) {
+        try {
+            mContentProviderClient.query(
+                    url, projection, selection, selectionArgs, sortOrder)
+        } catch (e: Exception) {
+            if (e is RemoteException) {
+                throw e
+            } else {
+                throw RemoteException(e.message)
+            }
+        }
     }
 
     @Throws(FileNotFoundException::class, RemoteException::class)
     suspend fun openInputStream(
             url: Uri
-    ): InputStream? = withContext(CommonPool) {
-        mContentProviderClient.openFile(url, "r")?.run {
-            ParcelFileDescriptor.AutoCloseInputStream(this)
+    ): InputStream? = withContext(Dispatchers.Default) {
+        try {
+            mContentProviderClient.openFile(url, "r")?.run {
+                ParcelFileDescriptor.AutoCloseInputStream(this)
+            }
+        } catch (e: Exception) {
+            if (e is FileNotFoundException || e is RemoteException) {
+                throw e
+            } else {
+                throw RemoteException(e.message)
+            }
         }
     }
 

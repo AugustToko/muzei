@@ -16,27 +16,27 @@
 
 package com.google.android.apps.muzei.wearable
 
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.LifecycleOwner
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.render.ImageLoader
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.util.observeNonNull
+import com.google.android.apps.muzei.util.filterNotNull
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.api.AvailabilityException
-import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.Asset
-import com.google.android.gms.wearable.DataItem
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutionException
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
 /**
@@ -51,8 +51,9 @@ class WearableController(private val context: Context) : DefaultLifecycleObserve
     override fun onCreate(owner: LifecycleOwner) {
         // Update Android Wear whenever the artwork changes
         MuzeiDatabase.getInstance(context).artworkDao().currentArtwork
-                .observeNonNull(owner) { artwork ->
-                    launch {
+                .filterNotNull()
+                .observe(owner) { artwork ->
+                    GlobalScope.launch {
                         updateArtwork(artwork)
                     }
                 }
@@ -64,18 +65,15 @@ class WearableController(private val context: Context) : DefaultLifecycleObserve
         }
         val dataClient = Wearable.getDataClient(context)
         try {
-            Tasks.await(GoogleApiAvailability.getInstance()
-                    .checkApiAvailability(dataClient), 5, TimeUnit.SECONDS)
-        } catch (e: ExecutionException) {
-            if (e.cause is AvailabilityException) {
-                val connectionResult = (e.cause as AvailabilityException)
-                        .getConnectionResult(dataClient)
-                if (connectionResult.errorCode != ConnectionResult.API_UNAVAILABLE) {
-                    Log.w(TAG, "onConnectionFailed: $connectionResult", e.cause)
-                }
-            } else {
-                Log.w(TAG, "Unable to check for Wear API availability", e)
+            GoogleApiAvailability.getInstance().checkApiAvailability(dataClient).await()
+        } catch (e: AvailabilityException) {
+            val connectionResult = e.getConnectionResult(dataClient)
+            if (connectionResult.errorCode != ConnectionResult.API_UNAVAILABLE) {
+                Log.w(TAG, "onConnectionFailed: $connectionResult", e.cause)
             }
+            return
+        } catch (e: ExecutionException) {
+            Log.w(TAG, "Unable to check for Wear API availability", e)
             return
         } catch (e: InterruptedException) {
             Log.w(TAG, "Unable to check for Wear API availability", e)
@@ -97,7 +95,7 @@ class WearableController(private val context: Context) : DefaultLifecycleObserve
             dataMap.putAsset("image", asset)
         }
         try {
-            Tasks.await<DataItem>(dataClient.putDataItem(dataMapRequest.asPutDataRequest().setUrgent()))
+            dataClient.putDataItem(dataMapRequest.asPutDataRequest().setUrgent()).await()
         } catch (e: ExecutionException) {
             Log.w(TAG, "Error uploading artwork to Wear", e)
         } catch (e: InterruptedException) {

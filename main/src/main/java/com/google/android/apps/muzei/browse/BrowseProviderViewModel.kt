@@ -17,31 +17,34 @@
 package com.google.android.apps.muzei.browse
 
 import android.app.Application
-import android.arch.lifecycle.AndroidViewModel
-import android.arch.lifecycle.LiveData
-import android.arch.lifecycle.MutableLiveData
-import android.arch.lifecycle.Transformations
-import android.content.ComponentName
 import android.content.ContentUris
 import android.content.Context
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Handler
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.switchMap
+import androidx.lifecycle.viewModelScope
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.util.ContentProviderClientCompat
-import kotlinx.coroutines.experimental.launch
-import kotlinx.coroutines.experimental.newSingleThreadContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 
 class ProviderArtworkLiveData(
         val context: Context,
+        val coroutineScope: CoroutineScope,
         val contentUri: Uri
 ): MutableLiveData<List<Artwork>>() {
-    private val componentName: ComponentName = context.packageManager
-            .resolveContentProvider(contentUri.authority, 0).run {
-        ComponentName(applicationInfo.packageName, name)
-    }
+    private val authority: String = contentUri.authority
+            ?: throw IllegalArgumentException("Invalid contentUri $contentUri")
     private val singleThreadContext by lazy {
-        newSingleThreadContext("ProviderArtworkLiveData")
+        Executors.newSingleThreadExecutor { target ->
+            Thread(target, "ProviderArtworkLiveData")
+        }.asCoroutineDispatcher()
     }
     private val contentObserver = object : ContentObserver(Handler()) {
         override fun onChange(selfChange: Boolean, uri: Uri?) {
@@ -71,7 +74,7 @@ class ProviderArtworkLiveData(
     }
 
     private fun refreshArt() {
-        launch(singleThreadContext) {
+        coroutineScope.launch(singleThreadContext) {
             val list = mutableListOf<Artwork>()
             contentProviderClient.query(contentUri)?.use { data ->
                 while(data.moveToNext()) {
@@ -82,7 +85,7 @@ class ProviderArtworkLiveData(
                         title = providerArtwork.title
                         byline = providerArtwork.byline
                         attribution = providerArtwork.attribution
-                        providerComponentName = componentName
+                        providerAuthority = authority
                     })
                 }
             }
@@ -100,8 +103,7 @@ class BrowseProviderViewModel(
         contentUriLiveData.value = contentUri
     }
 
-    val artLiveData: LiveData<List<Artwork>> = Transformations
-            .switchMap(contentUriLiveData) { contentUri ->
-                ProviderArtworkLiveData(application, contentUri)
-            }
+    val artLiveData: LiveData<List<Artwork>> = contentUriLiveData.switchMap { contentUri ->
+        ProviderArtworkLiveData(application, viewModelScope, contentUri)
+    }
 }

@@ -19,16 +19,9 @@ package com.google.android.apps.muzei.gallery
 import android.Manifest
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
-import android.arch.lifecycle.LiveData
-import android.arch.lifecycle.Observer
-import android.arch.lifecycle.ViewModelProvider
-import android.arch.paging.PagedList
-import android.arch.paging.PagedListAdapter
 import android.content.ActivityNotFoundException
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
@@ -36,21 +29,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.IBinder
 import android.provider.DocumentsContract
 import android.provider.Settings
-import android.support.annotation.RequiresApi
-import android.support.design.widget.Snackbar
-import android.support.v4.app.ActivityCompat
-import android.support.v4.content.ContextCompat
-import android.support.v4.view.ViewCompat
-import android.support.v7.app.AppCompatActivity
-import android.support.v7.util.DiffUtil
-import android.support.v7.widget.DefaultItemAnimator
-import android.support.v7.widget.GridLayoutManager
-import android.support.v7.widget.RecyclerView
-import android.support.v7.widget.Toolbar
-import android.util.SparseIntArray
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -66,16 +46,33 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ViewAnimator
+import androidx.activity.viewModels
+import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.core.database.getStringOrNull
-import androidx.core.widget.toast
+import androidx.core.view.ViewCompat
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.observe
+import androidx.paging.PagedList
+import androidx.paging.PagedListAdapter
+import androidx.recyclerview.widget.DefaultItemAnimator
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
 import com.google.android.apps.muzei.util.MultiSelectionController
-import com.google.android.apps.muzei.util.observe
-import com.squareup.picasso.Picasso
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.android.UI
-import kotlinx.coroutines.experimental.launch
-import kotlinx.coroutines.experimental.withContext
+import com.google.android.apps.muzei.util.getString
+import com.google.android.apps.muzei.util.getStringOrNull
+import com.google.android.apps.muzei.util.toast
+import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import java.util.ArrayList
 import java.util.HashSet
 import java.util.LinkedList
@@ -89,24 +86,6 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
         private const val REQUEST_CHOOSE_PHOTOS = 1
         private const val REQUEST_CHOOSE_FOLDER = 2
         private const val REQUEST_STORAGE_PERMISSION = 3
-        private const val STATE_SELECTION = "selection"
-
-        private val ROTATE_MENU_IDS_BY_MIN = SparseIntArray()
-        private val ROTATE_MINS_BY_MENU_ID = SparseIntArray()
-
-        init {
-            ROTATE_MENU_IDS_BY_MIN.apply {
-                put(0, R.id.action_rotate_interval_none)
-                put(60, R.id.action_rotate_interval_1h)
-                put(60 * 3, R.id.action_rotate_interval_3h)
-                put(60 * 6, R.id.action_rotate_interval_6h)
-                put(60 * 24, R.id.action_rotate_interval_24h)
-                put(60 * 72, R.id.action_rotate_interval_72h)
-            }
-            for (i in 0 until ROTATE_MENU_IDS_BY_MIN.size()) {
-                ROTATE_MINS_BY_MENU_ID.put(ROTATE_MENU_IDS_BY_MIN.valueAt(i), ROTATE_MENU_IDS_BY_MIN.keyAt(i))
-            }
-        }
 
         internal val CHOSEN_PHOTO_DIFF_CALLBACK: DiffUtil.ItemCallback<ChosenPhoto> = object : DiffUtil.ItemCallback<ChosenPhoto>() {
             override fun areItemsTheSame(oldItem: ChosenPhoto, newItem: ChosenPhoto): Boolean {
@@ -121,17 +100,7 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
         }
     }
 
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, service: IBinder) {}
-
-        override fun onServiceDisconnected(name: ComponentName) {}
-    }
-
-    private val viewModel: GallerySettingsViewModel by lazy {
-        ViewModelProvider(this,
-                ViewModelProvider.AndroidViewModelFactory.getInstance(application))
-                .get(GallerySettingsViewModel::class.java)
-    }
+    private val viewModel: GallerySettingsViewModel by viewModels()
 
     private val chosenPhotosLiveData: LiveData<PagedList<ChosenPhoto>> by lazy {
         viewModel.chosenPhotos
@@ -150,7 +119,7 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
     }
     private var itemSize = 10
 
-    private val multiSelectionController = MultiSelectionController(STATE_SELECTION)
+    private val multiSelectionController = MultiSelectionController(this)
 
     private val placeholderDrawable: ColorDrawable by lazy {
         ColorDrawable(ContextCompat.getColor(this,
@@ -177,10 +146,6 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
         super.onCreate(savedInstanceState)
         setContentView(R.layout.gallery_activity)
         setSupportActionBar(findViewById(R.id.app_bar))
-
-        bindService(Intent(this, GalleryArtSource::class.java)
-                .setAction(GalleryArtSource.ACTION_BIND_GALLERY),
-                serviceConnection, Context.BIND_AUTO_CREATE)
 
         setupMultiSelect()
 
@@ -316,24 +281,9 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
         onDataSetChanged()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        unbindService(serviceConnection)
-    }
-
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         super.onCreateOptionsMenu(menu)
         menuInflater.inflate(R.menu.gallery_activity, menu)
-
-        val rotateIntervalMin = GalleryArtSource.getSharedPreferences(this)
-                .getInt(GalleryArtSource.PREF_ROTATE_INTERVAL_MIN,
-                        GalleryArtSource.DEFAULT_ROTATE_INTERVAL_MIN)
-        val menuId = ROTATE_MENU_IDS_BY_MIN.get(rotateIntervalMin)
-        if (menuId != 0) {
-            menu.findItem(menuId)?.run {
-                isChecked = true
-            }
-        }
         return true
     }
 
@@ -349,7 +299,7 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
                 return false
         // Hide the 'Import photos' action if there are no activities found
         val importPhotosMenuItem = menu.findItem(R.id.action_import_photos)
-        importPhotosMenuItem.isVisible = !getContentActivites.isEmpty()
+        importPhotosMenuItem.isVisible = getContentActivites.isNotEmpty()
         // If there's only one app that supports ACTION_GET_CONTENT, tell the user what that app is
         if (getContentActivites.size == 1) {
             importPhotosMenuItem.title = getString(R.string.gallery_action_import_photos_from,
@@ -361,17 +311,7 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        val itemId = item.itemId
-        val rotateMin = ROTATE_MINS_BY_MENU_ID.get(itemId, -1)
-        if (rotateMin != -1) {
-            GalleryArtSource.getSharedPreferences(this).edit()
-                    .putInt(GalleryArtSource.PREF_ROTATE_INTERVAL_MIN, rotateMin)
-                    .apply()
-            item.isChecked = true
-            return true
-        }
-
-        when (itemId) {
+        when (item.itemId) {
             R.id.action_import_photos -> {
                 getContentActivitiesLiveData.value?.run {
                     when (size) {
@@ -392,7 +332,7 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
             }
             R.id.action_clear_photos -> {
                 val context = this
-                launch {
+                GlobalScope.launch {
                     GalleryDatabase.getInstance(context)
                             .chosenPhotoDao().deleteAll(context)
                 }
@@ -418,24 +358,11 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
         selectionToolbar.inflateMenu(R.menu.gallery_selection)
         selectionToolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                R.id.action_force_now -> {
-                    val selection = multiSelectionController.selection
-                    if (selection.size > 0) {
-                        val selectedUri = ChosenPhoto.getContentUri(selection.iterator().next())
-                        startService(
-                                Intent(this, GalleryArtSource::class.java)
-                                        .setAction(GalleryArtSource.ACTION_PUBLISH_NEXT_GALLERY_ITEM)
-                                        .putExtra(GalleryArtSource.EXTRA_FORCE_URI, selectedUri))
-                        toast(R.string.gallery_temporary_force_image)
-                    }
-                    multiSelectionController.reset(true)
-                    return@setOnMenuItemClickListener true
-                }
                 R.id.action_remove -> {
                     val removePhotos = ArrayList(
                             multiSelectionController.selection)
 
-                    launch {
+                    GlobalScope.launch {
                         // Remove chosen URIs
                         GalleryDatabase.getInstance(this@GallerySettingsActivity)
                                 .chosenPhotoDao()
@@ -534,26 +461,6 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
 
         val selectedCount = multiSelectionController.selectedCount
         val toolbarVisible = selectedCount > 0
-        if (selectedCount == 1) {
-            // Double check to make sure we can force a URI for the selected URI
-            val selectedId = multiSelectionController.selection.iterator().next()
-            launch(UI) {
-                val chosenPhoto = withContext(CommonPool) {
-                    GalleryDatabase.getInstance(this@GallerySettingsActivity)
-                            .chosenPhotoDao()
-                            .chosenPhotoBlocking(selectedId)
-                }
-                val showForceNow = if (chosenPhoto?.isTreeUri == true) {
-                    // Only show the force now icon if it isn't a tree URI or there is at least one image in the tree
-                    !getImagesFromTreeUri(chosenPhoto.uri, 1).isEmpty()
-                } else true
-                if (selectionToolbar.isAttachedToWindow) {
-                    selectionToolbar.menu.findItem(R.id.action_force_now).isVisible = showForceNow
-                }
-            }
-        }
-        // Hide the force now button until the callback above sets it
-        selectionToolbar.menu.findItem(R.id.action_force_now).isVisible = false
 
         val previouslyVisible: Boolean = selectionToolbarContainer.getTag(
                 R.id.gallery_viewtag_previously_visible) as? Boolean ?: false
@@ -602,12 +509,10 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
             if (selectedCount == 1) {
                 // If they've selected a tree URI, show the DISPLAY_NAME instead of just '1'
                 val selectedId = multiSelectionController.selection.iterator().next()
-                launch(UI) {
-                    val chosenPhoto = withContext(CommonPool) {
-                        GalleryDatabase.getInstance(this@GallerySettingsActivity)
-                                .chosenPhotoDao()
-                                .chosenPhotoBlocking(selectedId)
-                    }
+                lifecycleScope.launch(Dispatchers.Main) {
+                    val chosenPhoto = GalleryDatabase.getInstance(this@GallerySettingsActivity)
+                            .chosenPhotoDao()
+                            .getChosenPhoto(selectedId)
                     if (chosenPhoto?.isTreeUri == true && selectionToolbar.isAttachedToWindow) {
                         getDisplayNameForTreeUri(chosenPhoto.uri)?.takeUnless { it.isEmpty() }?.run {
                             selectionToolbar.title = this
@@ -651,6 +556,7 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
             val animator = findViewById<ViewAnimator>(R.id.empty_animator)
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
                 // Permission is granted, we can show the random camera photos image
+                GalleryScanWorker.enqueueRescan()
                 animator.displayedChild = 0
                 emptyDescription.setText(R.string.gallery_empty)
                 setResult(RESULT_OK)
@@ -670,11 +576,6 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
                 }
             }
         }
-    }
-
-    override fun onPostCreate(savedInstanceState: Bundle?) {
-        super.onPostCreate(savedInstanceState)
-        multiSelectionController.restoreInstanceState(savedInstanceState)
     }
 
     internal class PhotoViewHolder(val rootView: View) : RecyclerView.ViewHolder(rootView) {
@@ -726,10 +627,9 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
             for (h in 0 until numImages) {
                 val thumbView = vh.thumbViews[h]
                 thumbView.visibility = View.VISIBLE
-                Picasso.get()
+                Glide.with(this@GallerySettingsActivity)
                         .load(images[h])
-                        .resize(targetSize, targetSize)
-                        .centerCrop()
+                        .override(targetSize)
                         .placeholder(placeholderDrawable)
                         .into(thumbView)
             }
@@ -810,12 +710,12 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
                         null, null, null)?.use { children ->
                     while (children.moveToNext()) {
                         val documentId = children.getString(
-                                children.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID))
+                                DocumentsContract.Document.COLUMN_DOCUMENT_ID)
                         val mimeType = children.getString(
-                                children.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE))
+                                DocumentsContract.Document.COLUMN_MIME_TYPE)
                         if (DocumentsContract.Document.MIME_TYPE_DIR == mimeType) {
                             directories.add(documentId)
-                        } else if (mimeType != null && mimeType.startsWith("image/")) {
+                        } else if (mimeType.startsWith("image/")) {
                             // Add images to the list
                             images.add(DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId))
                         }
@@ -864,8 +764,9 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
 
         // Add chosen items
         val uris = HashSet<Uri>()
-        if (result.data != null) {
-            uris.add(result.data)
+        val data = result.data
+        if (data != null) {
+            uris.add(data)
         }
         // When selecting multiple images, "Photos" returns the first URI in getData and all URIs
         // in getClipData.
@@ -879,7 +780,7 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
             return
         }
         // Update chosen URIs
-        launch {
+        GlobalScope.launch {
             GalleryDatabase.getInstance(this@GallerySettingsActivity)
                     .chosenPhotoDao()
                     .insertAll(this@GallerySettingsActivity, uris)
@@ -889,10 +790,5 @@ class GallerySettingsActivity : AppCompatActivity(), Observer<PagedList<ChosenPh
     override fun onChanged(chosenPhotos: PagedList<ChosenPhoto>?) {
         chosenPhotosAdapter.submitList(chosenPhotos)
         onDataSetChanged()
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        multiSelectionController.saveInstanceState(outState)
     }
 }

@@ -21,24 +21,24 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.support.v4.app.Fragment
 import android.text.style.UnderlineSpan
 import android.util.SparseIntArray
 import android.util.SparseLongArray
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.os.bundleOf
 import androidx.core.text.set
 import androidx.core.text.toSpannable
-import androidx.core.widget.toast
+import androidx.fragment.app.Fragment
 import com.google.android.apps.muzei.sync.ProviderManager
+import com.google.android.apps.muzei.util.toast
+import com.google.firebase.analytics.FirebaseAnalytics
 import net.nurik.roman.muzei.R
 
-class AutoAdvanceSettingsFragment : Fragment() {
+class AutoAdvanceSettingsFragment : Fragment(R.layout.auto_advance_settings_fragment) {
     companion object {
         private const val TASKER_PACKAGE_NAME = "net.dinglisch.android.taskerm"
 
@@ -62,13 +62,6 @@ class AutoAdvanceSettingsFragment : Fragment() {
             }
         }
     }
-    override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.auto_advance_settings_fragment, container, false)
-    }
 
     @SuppressLint("InlinedApi")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -76,6 +69,9 @@ class AutoAdvanceSettingsFragment : Fragment() {
         val autoAdvanceWifi: CheckBox = view.findViewById(R.id.auto_advance_wifi)
         autoAdvanceWifi.isChecked = providerManager.loadOnWifi
         autoAdvanceWifi.setOnCheckedChangeListener { _, isChecked ->
+            FirebaseAnalytics.getInstance(requireContext()).logEvent(
+                    "auto_advance_load_on_wifi", bundleOf(
+                    FirebaseAnalytics.Param.VALUE to isChecked.toString()))
             providerManager.loadOnWifi = isChecked
         }
 
@@ -84,6 +80,9 @@ class AutoAdvanceSettingsFragment : Fragment() {
 
         intervalRadioGroup.check(INTERVAL_RADIO_BUTTON_IDS_BY_TIME[currentInterval.toInt()])
         intervalRadioGroup.setOnCheckedChangeListener { _, id ->
+            FirebaseAnalytics.getInstance(requireContext()).logEvent(
+                    "auto_advance_load_frequency", bundleOf(
+                    FirebaseAnalytics.Param.VALUE to INTERVAL_TIME_BY_RADIO_BUTTON_ID[id]))
             providerManager.loadFrequencySeconds = INTERVAL_TIME_BY_RADIO_BUTTON_ID[id]
         }
 
@@ -105,6 +104,7 @@ class AutoAdvanceSettingsFragment : Fragment() {
                                                 "%26utm_medium%3Dapp" +
                                                 "%26utm_campaign%3Dauto_advance"))
                                 ).addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT))
+                FirebaseAnalytics.getInstance(context).logEvent("tasker_open", null)
             } catch (e: ActivityNotFoundException) {
                 context.toast(R.string.play_store_not_found, Toast.LENGTH_LONG)
             } catch (e: SecurityException) {

@@ -16,19 +16,18 @@
 
 package com.google.android.apps.muzei.shortcuts
 
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.LifecycleOwner
 import android.content.Context
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import android.os.Build
-import android.support.annotation.RequiresApi
+import androidx.annotation.RequiresApi
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.ArtworkInfoRedirectActivity
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.util.observe
-import kotlinx.coroutines.experimental.launch
 import net.nurik.roman.muzei.R
 
 /**
@@ -47,9 +46,7 @@ class ArtworkInfoShortcutController(
     override fun onCreate(owner: LifecycleOwner) {
         MuzeiDatabase.getInstance(context).artworkDao()
                 .currentArtwork.observe(lifecycleOwner) { artwork ->
-            launch {
-                updateShortcut(artwork)
-            }
+            updateShortcut(artwork)
         }
     }
 
@@ -74,7 +71,7 @@ class ArtworkInfoShortcutController(
                     .setIcon(Icon.createWithResource(context,
                             R.drawable.ic_shortcut_artwork_info))
                     .setShortLabel(context.getString(R.string.action_artwork_info))
-                    .setIntent(ArtworkInfoRedirectActivity.getIntent(context))
+                    .setIntent(ArtworkInfoRedirectActivity.getIntent(context, "shortcut"))
                     .build()
             shortcutManager.addDynamicShortcuts(
                     listOf(shortcutInfo))

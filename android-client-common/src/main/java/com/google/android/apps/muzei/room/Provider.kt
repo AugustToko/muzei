@@ -16,19 +16,14 @@
 
 package com.google.android.apps.muzei.room
 
-import android.arch.persistence.room.Entity
-import android.arch.persistence.room.PrimaryKey
-import android.arch.persistence.room.TypeConverters
-import android.content.ComponentName
-
-import com.google.android.apps.muzei.room.converter.ComponentNameTypeConverter
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 
 /**
  * Provider information's representation in Room
  */
 @Entity(tableName = "provider")
 data class Provider(
-        @field:TypeConverters(ComponentNameTypeConverter::class)
         @field:PrimaryKey
-        val componentName: ComponentName,
+        val authority: String,
         var supportsNextArtwork: Boolean = false)

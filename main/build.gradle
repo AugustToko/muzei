@@ -19,7 +19,7 @@ apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-kapt'
 apply plugin: 'com.google.firebase.firebase-perf'
 apply plugin: 'io.fabric'
-apply plugin: 'androidx.navigation.safeargs'
+apply plugin: 'androidx.navigation.safeargs.kotlin'
 
 project.archivesBaseName = "muzei"
 
@@ -39,7 +39,13 @@ android {
         versionName versionProps['name']
         versionCode versionProps['code'].toInteger()
 
+        multiDexEnabled true
         wearAppUnbundled true
+
+        def sourcesAuthorityValue = "com.google.android.apps.muzei.sources"
+        manifestPlaceholders = [sourcesAuthority: sourcesAuthorityValue]
+        buildConfigField "String", "SOURCES_AUTHORITY", "\"${sourcesAuthorityValue}\""
+
         buildConfigField "String", "DEVICE_TYPE", "\"android\""
     }
 
@@ -89,38 +95,31 @@ android {
     }
 }
 
-kotlin.experimental.coroutines "enable"
-
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
-    implementation "androidx.core:core-ktx:$rootProject.ext.ktxVersion"
+    api "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:$coroutinesVersion"
+    implementation "androidx.multidex:multidex:$multidexVersion"
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
-    implementation "com.squareup.picasso:picasso:$picassoVersion"
+    implementation "com.github.bumptech.glide:glide:$glideVersion"
     implementation "com.google.android.gms:play-services-wearable:$playServicesWearableVersion"
-    implementation "com.google.firebase:firebase-core:$firebaseCoreVersion"
-    implementation "com.google.firebase:firebase-perf:$firebasePerfVersion"
-    implementation "com.crashlytics.sdk.android:crashlytics:$crashlyticsVersion"
-    implementation ("com.twofortyfouram:android-plugin-api-for-locale:1.0.2") {
-        exclude module: 'support-annotations'
-    }
-    implementation ("com.android.support:support-v4:$supportLibraryVersion") {
-        exclude module: 'support-media-compat'
-    }
-    implementation "com.android.support:appcompat-v7:$supportLibraryVersion"
-    implementation "com.android.support:recyclerview-v7:$supportLibraryVersion"
-    implementation "com.android.support:design:$supportLibraryVersion"
-    implementation "com.android.support:customtabs:$supportLibraryVersion"
-    implementation "com.android.support:exifinterface:$supportLibraryVersion"
-    implementation "com.android.support.constraint:constraint-layout:$constraintLayoutVersion"
-    implementation "android.arch.lifecycle:livedata:$lifecycleVersion"
-    implementation "android.arch.lifecycle:common-java8:$lifecycleVersion"
-    implementation "android.arch.lifecycle:runtime:$lifecycleVersion"
-    implementation "android.arch.lifecycle:viewmodel:$lifecycleVersion"
-    kapt "android.arch.lifecycle:compiler:$lifecycleVersion"
-    implementation "android.arch.navigation:navigation-fragment-ktx:$navigationVersion"
-    implementation "android.arch.navigation:navigation-ui-ktx:$navigationVersion"
+    implementation "com.twofortyfouram:android-plugin-api-for-locale:1.0.4"
+    implementation "com.davemorrissey.labs:subsampling-scale-image-view:3.10.0"
+    implementation "androidx.core:core-ktx:$coreVersion"
+    implementation "androidx.fragment:fragment-ktx:$fragmentVersion"
+    implementation "androidx.appcompat:appcompat:$appCompatVersion"
+    implementation "androidx.recyclerview:recyclerview:$recyclerViewVersion"
+    implementation "com.google.android.material:material:$materialVersion"
+    implementation "androidx.browser:browser:$browserVersion"
+    implementation "androidx.exifinterface:exifinterface:$exifInterfaceVersion"
+    implementation "androidx.constraintlayout:constraintlayout:$constraintLayoutVersion"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion"
+    implementation "androidx.lifecycle:lifecycle-common-java8:$lifecycleVersion"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:$lifecycleVersion"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion"
+    implementation "androidx.navigation:navigation-fragment-ktx:$navigationVersion"
+    implementation "androidx.navigation:navigation-ui-ktx:$navigationVersion"
 
     implementation project(':muzei-api')
     implementation project(':extensions')

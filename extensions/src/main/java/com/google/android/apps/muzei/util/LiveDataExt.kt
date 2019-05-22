@@ -16,20 +16,16 @@
 
 package com.google.android.apps.muzei.util
 
-import android.arch.lifecycle.LifecycleOwner
-import android.arch.lifecycle.LiveData
-import android.arch.lifecycle.Observer
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.switchMap
 
-fun <T> LiveData<T>.observe(owner: LifecycleOwner, callback: (T?) -> Unit) {
-    observe(owner, Observer<T?> { value ->
-        callback(value)
-    })
-}
-
-fun <T> LiveData<T?>.observeNonNull(owner: LifecycleOwner, callback: (T) -> Unit) {
-    observe(owner, Observer { value ->
+fun <T> LiveData<T?>.filterNotNull() : LiveData<T> {
+    val mutableLiveData = MutableLiveData<T>()
+    return switchMap { value ->
         if (value != null) {
-            callback(value)
+            mutableLiveData.value = value
         }
-    })
+        mutableLiveData
+    }
 }

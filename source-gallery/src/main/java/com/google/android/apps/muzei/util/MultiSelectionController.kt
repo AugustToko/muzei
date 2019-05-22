@@ -16,13 +16,26 @@
 
 package com.google.android.apps.muzei.util
 
-import android.os.Bundle
+import androidx.core.os.bundleOf
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryOwner
 import java.util.HashSet
 
 /**
  * Utilities for storing multiple selection information in collection views.
  */
-class MultiSelectionController(private val stateKey: String) {
+class MultiSelectionController(
+        savedStateRegistryOwner: SavedStateRegistryOwner
+) : DefaultLifecycleObserver, SavedStateRegistry.SavedStateProvider {
+
+    companion object {
+        private const val STATE_SELECTION = "selection"
+    }
+
+    private val lifecycle = savedStateRegistryOwner.lifecycle
+    private val savedStateRegistry = savedStateRegistryOwner.savedStateRegistry
 
     val selection = HashSet<Long>()
     var callbacks: Callbacks? = null
@@ -30,10 +43,15 @@ class MultiSelectionController(private val stateKey: String) {
     val selectedCount: Int
         get() = selection.size
 
-    fun restoreInstanceState(savedInstanceState: Bundle?) {
-        savedInstanceState?.run {
+    init {
+        lifecycle.addObserver(this)
+        savedStateRegistry.registerSavedStateProvider(STATE_SELECTION, this)
+    }
+
+    override fun onCreate(owner: LifecycleOwner) {
+        savedStateRegistry.consumeRestoredStateForKey(STATE_SELECTION)?.run {
             selection.clear()
-            val savedSelection = getLongArray(stateKey)
+            val savedSelection = getLongArray(STATE_SELECTION)
             if (savedSelection?.isNotEmpty() == true) {
                 for (item in savedSelection) {
                     selection.add(item)
@@ -44,9 +62,7 @@ class MultiSelectionController(private val stateKey: String) {
         callbacks?.onSelectionChanged(true, false)
     }
 
-    fun saveInstanceState(outBundle: Bundle) {
-        outBundle.putLongArray(stateKey, selection.toLongArray())
-    }
+    override fun saveState() = bundleOf(STATE_SELECTION to selection.toLongArray())
 
     fun toggle(item: Long, fromUser: Boolean) {
         if (selection.contains(item)) {

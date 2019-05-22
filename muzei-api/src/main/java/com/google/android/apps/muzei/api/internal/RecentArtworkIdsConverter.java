@@ -15,10 +15,11 @@
  */
 package com.google.android.apps.muzei.api.internal;
 
-import android.support.annotation.NonNull;
 import android.text.TextUtils;
 
 import java.util.ArrayDeque;
+
+import androidx.annotation.NonNull;
 
 /**
  * Converts a ArrayDeque of {@link Long}s into and from a persisted value
@@ -30,7 +31,11 @@ public class RecentArtworkIdsConverter {
         TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(',');
         splitter.setString(idsString);
         while (splitter.hasNext()) {
-            ids.add(Long.parseLong(splitter.next()));
+            long id = Long.parseLong(splitter.next());
+            // Remove the id if it exists in the list already
+            ids.remove(id);
+            // Then add it to the end of the list
+            ids.add(id);
         }
         return ids;
     }

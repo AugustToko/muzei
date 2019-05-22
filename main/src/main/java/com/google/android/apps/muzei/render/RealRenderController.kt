@@ -16,30 +16,28 @@
 
 package com.google.android.apps.muzei.render
 
-import android.arch.lifecycle.LifecycleOwner
 import android.content.Context
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.api.MuzeiContract
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.util.observeNonNull
+import com.google.android.apps.muzei.util.filterNotNull
 
 class RealRenderController(
         context: Context,
         renderer: MuzeiBlurRenderer,
-        callbacks: RenderController.Callbacks
+        callbacks: Callbacks
 ) : RenderController(context, renderer, callbacks) {
 
     private val artworkLiveData = MuzeiDatabase.getInstance(context)
             .artworkDao().currentArtwork
 
-    init {
-        reloadCurrentArtwork()
-    }
-
     override fun onCreate(owner: LifecycleOwner) {
         super.onCreate(owner)
-        artworkLiveData.observeNonNull(owner) {
+        artworkLiveData.filterNotNull().observe(owner) {
             reloadCurrentArtwork()
         }
+        reloadCurrentArtwork()
     }
 
     /**

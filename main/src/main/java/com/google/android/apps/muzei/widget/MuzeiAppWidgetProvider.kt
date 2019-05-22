@@ -21,8 +21,10 @@ import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import androidx.core.os.bundleOf
 import com.google.android.apps.muzei.sources.SourceManager
-import kotlinx.coroutines.experimental.launch
+import com.google.android.apps.muzei.util.goAsync
+import com.google.firebase.analytics.FirebaseAnalytics
 
 /**
  * AppWidgetProvider for Muzei. The actual updating is done asynchronously in
@@ -37,7 +39,12 @@ class MuzeiAppWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent?) {
         super.onReceive(context, intent)
         if (intent?.action == ACTION_NEXT_ARTWORK) {
-            SourceManager.nextArtwork(context)
+            goAsync {
+                FirebaseAnalytics.getInstance(context).logEvent(
+                        "next_artwork", bundleOf(
+                        FirebaseAnalytics.Param.CONTENT_TYPE to "app_widget"))
+                SourceManager.nextArtwork(context)
+            }
         }
     }
 
@@ -55,10 +62,8 @@ class MuzeiAppWidgetProvider : AppWidgetProvider() {
     }
 
     private fun updateWidgets(context: Context) {
-        val result = goAsync()
-        launch {
+        goAsync {
             updateAppWidget(context)
-            result.finish()
         }
     }
 }

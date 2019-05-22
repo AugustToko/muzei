@@ -16,6 +16,7 @@
 
 package com.example.muzei.unsplash
 
+import android.content.Context
 import android.util.Log
 import androidx.core.net.toUri
 import androidx.work.Constraints
@@ -23,17 +24,22 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
+import androidx.work.WorkerParameters
+import com.example.muzei.unsplash.BuildConfig.UNSPLASH_AUTHORITY
 import com.google.android.apps.muzei.api.provider.Artwork
 import com.google.android.apps.muzei.api.provider.ProviderContract
 import java.io.IOException
 
-class UnsplashExampleWorker : Worker() {
+class UnsplashExampleWorker(
+        context: Context,
+        workerParams: WorkerParameters
+) : Worker(context, workerParams) {
 
     companion object {
         private const val TAG = "UnsplashExample"
 
         internal fun enqueueLoad() {
-            val workManager = WorkManager.getInstance() ?: return
+            val workManager = WorkManager.getInstance()
             workManager.enqueue(OneTimeWorkRequestBuilder<UnsplashExampleWorker>()
                     .setConstraints(Constraints.Builder()
                             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -47,16 +53,18 @@ class UnsplashExampleWorker : Worker() {
             UnsplashService.popularPhotos()
         } catch (e: IOException) {
             Log.w(TAG, "Error reading Unsplash response", e)
-            return Result.RETRY
+            return Result.retry()
         }
 
         if (photos.isEmpty()) {
             Log.w(TAG, "No photos returned from API.")
-            return Result.FAILURE
+            return Result.failure()
         }
 
+        val providerClient = ProviderContract.getProviderClient(
+                applicationContext, UNSPLASH_AUTHORITY)
         val attributionString = applicationContext.getString(R.string.attribution)
-        photos.map { photo ->
+        providerClient.addArtwork(photos.map { photo ->
             Artwork().apply {
                 token = photo.id
                 title = photo.description ?: attributionString
@@ -66,11 +74,7 @@ class UnsplashExampleWorker : Worker() {
                 webUri = photo.links.webUri
                 metadata = photo.user.links.webUri.toString()
             }
-        }.forEach { artwork ->
-            ProviderContract.Artwork.addArtwork(applicationContext,
-                    UnsplashExampleArtProvider::class.java,
-                    artwork)
-        }
-        return Result.SUCCESS
+        })
+        return Result.success()
     }
 }

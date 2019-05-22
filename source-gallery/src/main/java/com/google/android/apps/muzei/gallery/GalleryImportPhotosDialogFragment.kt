@@ -1,18 +1,18 @@
 package com.google.android.apps.muzei.gallery
 
 import android.app.Dialog
-import android.arch.lifecycle.LiveData
-import android.arch.lifecycle.ViewModelProvider
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.os.Bundle
-import android.support.annotation.LayoutRes
-import android.support.v4.app.DialogFragment
-import android.support.v4.app.FragmentManager
-import android.support.v7.app.AlertDialog
 import android.widget.ArrayAdapter
+import androidx.annotation.LayoutRes
 import androidx.core.content.withStyledAttributes
-import com.google.android.apps.muzei.util.observe
+import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.FragmentManager
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.observe
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class GalleryImportPhotosDialogFragment : DialogFragment() {
 
@@ -24,25 +24,24 @@ class GalleryImportPhotosDialogFragment : DialogFragment() {
         }
     }
 
+    private val viewModel: GallerySettingsViewModel by viewModels()
     private val getContentActivitiesLiveData: LiveData<List<ActivityInfo>> by lazy {
-        ViewModelProvider(this,
-                ViewModelProvider.AndroidViewModelFactory.getInstance(requireActivity().application))
-                .get(GallerySettingsViewModel::class.java)
-                .getContentActivityInfoList
+        viewModel.getContentActivityInfoList
     }
     private var listener: OnRequestContentListener? = null
     private lateinit var adapter: ArrayAdapter<CharSequence>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        context?.withStyledAttributes(attrs = R.styleable.AlertDialog, defStyleAttr = R.attr.alertDialogStyle) {
+        requireContext().withStyledAttributes(attrs = R.styleable.AlertDialog, defStyleAttr = R.attr.alertDialogStyle) {
             @LayoutRes val listItemLayout = getResourceId(R.styleable.AlertDialog_listItemLayout, 0)
-            adapter = ArrayAdapter(context, listItemLayout)
+            adapter = ArrayAdapter(requireContext(), listItemLayout)
         }
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        return AlertDialog.Builder(requireContext())
+        return MaterialAlertDialogBuilder(requireContext(),
+                R.style.Theme_MaterialComponents_DayNight_Dialog_Alert)
                 .setTitle(R.string.gallery_import_dialog_title)
                 .setAdapter(adapter) { _, which ->
                     getContentActivitiesLiveData.value?.run {
@@ -56,7 +55,7 @@ class GalleryImportPhotosDialogFragment : DialogFragment() {
         listener = context as? OnRequestContentListener ?: throw IllegalArgumentException(
                 "${context.javaClass.simpleName} must implement OnRequestContentListener")
         getContentActivitiesLiveData.observe(this) { getContentActivities ->
-            if (getContentActivities?.isEmpty() != false) {
+            if (getContentActivities.isEmpty()) {
                 dismiss()
             } else {
                 updateAdapter(getContentActivities)
@@ -70,7 +69,7 @@ class GalleryImportPhotosDialogFragment : DialogFragment() {
     }
 
     private fun updateAdapter(getContentActivites: List<ActivityInfo>) {
-        val packageManager = context?.packageManager
+        val packageManager = requireContext().packageManager
         adapter.apply {
             clear()
             addAll(getContentActivites.map { it.loadLabel(packageManager) })

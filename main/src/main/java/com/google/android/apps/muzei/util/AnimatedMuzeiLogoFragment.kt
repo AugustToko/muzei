@@ -19,15 +19,13 @@ package com.google.android.apps.muzei.util
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.os.Bundle
-import android.support.v4.app.Fragment
 import android.util.TypedValue
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.view.animation.OvershootInterpolator
+import androidx.fragment.app.Fragment
 import net.nurik.roman.muzei.R
 
-class AnimatedMuzeiLogoFragment : Fragment() {
+class AnimatedMuzeiLogoFragment : Fragment(R.layout.animated_logo_fragment) {
     private lateinit var subtitleView: View
     private lateinit var logoView: AnimatedMuzeiLogoView
     private val initialLogoOffset: Float by lazy {
@@ -35,14 +33,6 @@ class AnimatedMuzeiLogoFragment : Fragment() {
                 resources.displayMetrics)
     }
     var onFillStarted: () -> Unit = {}
-
-    override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.animated_logo_fragment, container, false)
-    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         subtitleView = view.findViewById(R.id.logo_subtitle)

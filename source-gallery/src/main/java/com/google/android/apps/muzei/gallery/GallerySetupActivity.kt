@@ -20,11 +20,11 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.support.v4.app.ActivityCompat
-import android.support.v4.app.FragmentActivity
-import android.support.v4.content.ContextCompat
-import com.google.android.apps.muzei.api.MuzeiArtSource
-import com.google.android.apps.muzei.util.observe
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.observe
+import com.google.android.apps.muzei.api.provider.MuzeiArtProvider
 
 class GallerySetupActivity : FragmentActivity() {
 
@@ -37,7 +37,7 @@ class GallerySetupActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         GalleryDatabase.getInstance(this).chosenPhotoDao()
                 .chosenPhotos.observe(this) { chosenUris ->
-            val numChosenUris = chosenUris?.size ?: 0
+            val numChosenUris = chosenUris.size
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
                     == PackageManager.PERMISSION_GRANTED || numChosenUris > 0) {
                 // If we have permission or have any previously selected images
@@ -62,14 +62,15 @@ class GallerySetupActivity : FragmentActivity() {
         }
 
         if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            GalleryScanWorker.enqueueRescan()
             setResult(RESULT_OK)
             finish()
         } else {
             // Push the user to the GallerySettingsActivity to see inline rationale or just
             // select individual photos
             startActivityForResult(Intent(this, GallerySettingsActivity::class.java).apply {
-                if (intent.getBooleanExtra(MuzeiArtSource.EXTRA_FROM_MUZEI_SETTINGS, false)) {
-                    putExtra(MuzeiArtSource.EXTRA_FROM_MUZEI_SETTINGS, true)
+                if (intent.getBooleanExtra(MuzeiArtProvider.EXTRA_FROM_MUZEI, false)) {
+                    putExtra(MuzeiArtProvider.EXTRA_FROM_MUZEI, true)
                 }
             }, REQUEST_CHOOSE_IMAGES)
         }

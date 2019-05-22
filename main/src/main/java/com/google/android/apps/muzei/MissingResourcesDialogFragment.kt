@@ -23,12 +23,12 @@ import android.content.Intent
 import android.content.res.Resources
 import android.net.Uri
 import android.os.Bundle
-import android.support.v4.app.DialogFragment
-import android.support.v4.app.FragmentActivity
-import android.support.v4.content.ContextCompat
-import android.support.v7.app.AlertDialog
 import android.widget.Toast
-import androidx.core.widget.toast
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.FragmentActivity
+import com.google.android.apps.muzei.util.toast
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import net.nurik.roman.muzei.R
 
 class MissingResourcesDialogFragment : DialogFragment() {
@@ -50,13 +50,14 @@ class MissingResourcesDialogFragment : DialogFragment() {
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        return AlertDialog.Builder(requireContext())
+        return MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.missing_resources_title)
                 .setMessage(R.string.missing_resources_message)
                 .setPositiveButton(R.string.missing_resources_open) { _: DialogInterface, _: Int ->
                     try {
                         val playStoreIntent = Intent(Intent.ACTION_VIEW,
-                                Uri.parse("https://play.google.com/store/apps/details?id=" + requireContext().packageName))
+                                Uri.parse("https://play.google.com/store/apps/details?id=" +
+                                        requireContext().packageName))
                         startActivity(playStoreIntent)
                     } catch (e: ActivityNotFoundException) {
                         requireContext().toast(R.string.play_store_not_found, Toast.LENGTH_LONG)

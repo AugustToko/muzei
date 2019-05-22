@@ -23,10 +23,12 @@ import android.os.Build
 import android.os.Bundle
 import android.preference.PreferenceManager
 import android.provider.Settings
-import android.support.v4.app.DialogFragment
-import android.support.v4.app.FragmentManager
-import android.support.v7.app.AlertDialog
+import android.widget.Toast
 import androidx.core.content.edit
+import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.FragmentManager
+import com.google.android.apps.muzei.util.toast
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import net.nurik.roman.muzei.R
 
 class NotificationSettingsDialogFragment : DialogFragment() {
@@ -45,7 +47,11 @@ class NotificationSettingsDialogFragment : DialogFragment() {
                 // Open the specific channel since we only have one notification channel
                 intent.putExtra(Settings.EXTRA_CHANNEL_ID,
                         NewWallpaperNotificationReceiver.NOTIFICATION_CHANNEL)
-                context.startActivity(intent)
+                if (intent.resolveActivity(context.packageManager) != null) {
+                    context.startActivity(intent)
+                } else {
+                    context.toast(R.string.notification_settings_failed, Toast.LENGTH_LONG)
+                }
             } else {
                 NotificationSettingsDialogFragment().show(
                         fragmentManager, "notifications")
@@ -59,7 +65,7 @@ class NotificationSettingsDialogFragment : DialogFragment() {
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
         val checkedItems = booleanArrayOf(sharedPreferences
                 .getBoolean(NewWallpaperNotificationReceiver.PREF_ENABLED, true))
-        return AlertDialog.Builder(context)
+        return MaterialAlertDialogBuilder(context)
                 .setTitle(R.string.notification_settings)
                 .setMultiChoiceItems(items, checkedItems) { _, _, isChecked ->
                     sharedPreferences.edit {

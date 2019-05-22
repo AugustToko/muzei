@@ -23,7 +23,6 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.Parcel
 import android.os.Parcelable
-import android.support.annotation.Keep
 import android.util.AttributeSet
 import android.util.Log
 import android.view.GestureDetector
@@ -31,6 +30,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.EdgeEffect
 import android.widget.OverScroller
+import androidx.annotation.Keep
 
 /**
  * View which supports panning around an image larger than the screen size. Supports both scrolling
@@ -405,7 +405,7 @@ class PanView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
     /**
      * Persistent state that is saved by PanView.
      */
-    class SavedState : View.BaseSavedState {
+    class SavedState : BaseSavedState {
 
         companion object {
             @Suppress("unused")
@@ -425,7 +425,7 @@ class PanView @JvmOverloads constructor(context: Context, attrs: AttributeSet? =
         var offsetX = 0f
         var offsetY = 0f
 
-        constructor(superState: Parcelable) : super(superState)
+        constructor(superState: Parcelable?) : super(superState)
 
         internal constructor(source: Parcel) : super(source) {
             offsetX = source.readFloat()

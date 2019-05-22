@@ -1,21 +1,22 @@
 package com.google.android.apps.muzei.gallery
 
-import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.support.v4.app.ActivityCompat
-import android.support.v4.app.ShareCompat
 import android.util.Log
-import androidx.core.widget.toast
-import kotlinx.coroutines.experimental.android.UI
-import kotlinx.coroutines.experimental.launch
+import androidx.core.app.ActivityCompat
+import androidx.core.app.ShareCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import com.google.android.apps.muzei.util.toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Activity which responds to [android.content.Intent.ACTION_SEND] and
  * [android.content.Intent.ACTION_SEND_MULTIPLE] to add one or more
  * images to the Gallery
  */
-class GalleryAddPhotosActivity : Activity() {
+class GalleryAddPhotosActivity : FragmentActivity() {
 
     companion object {
         private const val TAG = "GalleryAddPhotos"
@@ -36,9 +37,13 @@ class GalleryAddPhotosActivity : Activity() {
         streamCount = intentReader.streamCount
         for (index in 0 until streamCount) {
             val photoUri = intentReader.getStream(index)
+            if (photoUri == null) {
+                streamCount--
+                continue
+            }
             val chosenPhoto = ChosenPhoto(photoUri)
 
-            launch(UI) {
+            lifecycleScope.launch(Dispatchers.Main) {
                 val context = this@GalleryAddPhotosActivity
                 val id = GalleryDatabase.getInstance(context).chosenPhotoDao()
                         .insert(context, chosenPhoto, callingApplication)

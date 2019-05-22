@@ -16,14 +16,18 @@
 package com.google.android.apps.muzei.api.provider;
 
 import android.annotation.SuppressLint;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.ContentProvider;
+import android.content.ContentProviderOperation;
+import android.content.ContentProviderResult;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.OperationApplicationException;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
@@ -37,13 +41,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.BaseColumns;
-import android.support.annotation.CallSuper;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.annotation.RequiresApi;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.google.android.apps.muzei.api.BuildConfig;
 import com.google.android.apps.muzei.api.UserCommand;
 import com.google.android.apps.muzei.api.internal.RecentArtworkIdsConverter;
 
@@ -60,18 +61,30 @@ import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+
+import androidx.annotation.CallSuper;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_COMMAND;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_COMMANDS;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_DESCRIPTION;
+import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_GET_ARTWORK_INFO;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_LAST_LOADED_TIME;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_MAX_LOADED_ARTWORK_ID;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_OPEN_ARTWORK_INFO_SUCCESS;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_RECENT_ARTWORK_IDS;
+import static com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_VERSION;
+import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_GET_ARTWORK_INFO;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_GET_COMMANDS;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_GET_DESCRIPTION;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_GET_LOAD_INFO;
+import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_GET_VERSION;
+import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_MARK_ARTWORK_INVALID;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_MARK_ARTWORK_LOADED;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_OPEN_ARTWORK_INFO;
 import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_REQUEST_LOAD;
@@ -160,9 +173,8 @@ import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHO
  * As onLoadRequested can be called at any time (including when offline), it is
  * strongly recommended to use the callback of onLoadRequested to kick off
  * a load operation using WorkManager, JobScheduler, or a comparable API. These
- * other components can then use
- * {@link ProviderContract.Artwork#addArtwork(Context, Class, Artwork)} to add
- * Artwork to the MuzeiArtProvider.
+ * other components can then use a {@link ProviderClient} and
+ * {@link ProviderClient#addArtwork(Artwork)} to add Artwork to the MuzeiArtProvider.
  * <h3>Additional notes</h3>
  * Providers can also expose additional user-facing commands (such as 'Share artwork') by
  * returning one or more {@link UserCommand commands} from {@link #getCommands(Artwork)}. To handle
@@ -174,7 +186,7 @@ import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHO
  * used.
  * <p>
  * All artwork should support opening an Activity to view more details about the artwork.
- * You can provider your own functionality by overriding {@link #openArtworkInfo(Artwork)}.
+ * You can provider your own functionality by overriding {@link #getArtworkInfo(Artwork)}.
  * <p>
  * If custom behavior is needed to retrieve the artwork's binary data (for example,
  * authentication with a remote server), this behavior can be added to
@@ -182,7 +194,7 @@ import static com.google.android.apps.muzei.api.internal.ProtocolConstants.METHO
  * artwork, you can also write it directly via {@link ContentResolver#openOutputStream(Uri)}.
  */
 @RequiresApi(Build.VERSION_CODES.KITKAT)
-public abstract class MuzeiArtProvider extends ContentProvider {
+public abstract class MuzeiArtProvider extends ContentProvider implements ProviderClient {
     private static final String TAG = "MuzeiArtProvider";
     private static final boolean DEBUG = false;
     private static final int MAX_RECENT_ARTWORK = 100;
@@ -193,7 +205,7 @@ public abstract class MuzeiArtProvider extends ContentProvider {
      * This is a signature permission that only Muzei can hold.
      * </p>
      */
-    @SuppressWarnings({"WeakerAccess", "unused"})
+    @SuppressWarnings({"unused"})
     public static final String ACCESS_PERMISSION
             = "com.google.android.apps.muzei.api.ACCESS_PROVIDER";
     /**
@@ -258,67 +270,132 @@ public abstract class MuzeiArtProvider extends ContentProvider {
     private String authority;
     private Uri contentUri;
 
-    /**
-     * Retrieve the content URI for this {@link MuzeiArtProvider}, allowing you to build
-     * custom queries, inserts, updates, and deletes using a {@link ContentResolver}.
-     *
-     * @return The content URI for this {@link MuzeiArtProvider}
-     * @see ProviderContract.Artwork#getContentUri(Context, Class)
-     */
+    private final ThreadLocal<Boolean> applyingBatch = new ThreadLocal<>();
+    private final ThreadLocal<Set<Uri>> changedUris = new ThreadLocal<>();
+
+    private boolean applyingBatch() {
+        return applyingBatch.get() != null && applyingBatch.get();
+    }
+
+    private void onOperationComplete() {
+        Context context = getContext();
+        if (context == null) {
+            return;
+        }
+        ContentResolver contentResolver = context.getContentResolver();
+        for (Uri uri : changedUris.get()) {
+            Log.d(TAG, "Notified for batch change on " + uri);
+            contentResolver.notifyChange(uri, null);
+        }
+    }
+
+    @Override
     @NonNull
-    protected final Uri getContentUri() {
-        if (getContext() == null) {
+    public final Uri getContentUri() {
+        Context context = getContext();
+        if (context == null) {
             throw new IllegalStateException("getContentUri() should not be called before onCreate()");
         }
         if (contentUri == null) {
-            contentUri = ProviderContract.Artwork.getContentUri(getContext(), getClass());
+            contentUri = ProviderContract.getProviderClient(context, getClass()).getContentUri();
         }
         return contentUri;
     }
 
-    /**
-     * Retrieve the last added artwork for this {@link MuzeiArtProvider}.
-     *
-     * @return The last added Artwork, or null if no artwork has been added
-     * @see ProviderContract.Artwork#getLastAddedArtwork(Context, Class)
-     */
+    @Override
     @Nullable
-    protected final Artwork getLastAddedArtwork() {
+    public final Artwork getLastAddedArtwork() {
         try (Cursor data = query(contentUri, null, null, null,
-                ProviderContract.Artwork.DATE_ADDED + " DESC")) {
+                BaseColumns._ID + " DESC")) {
             return data.moveToFirst() ? Artwork.fromCursor(data) : null;
         }
     }
 
-    /**
-     * Add a new piece of artwork to this {@link MuzeiArtProvider}.
-     *
-     * @param artwork The artwork to add
-     * @return The URI of the newly added artwork or null if the insert failed
-     * @see ProviderContract.Artwork#addArtwork(Context, Class, Artwork)
-     */
+    @Override
     @Nullable
-    protected final Uri addArtwork(@NonNull Artwork artwork) {
+    public final Uri addArtwork(@NonNull Artwork artwork) {
         return insert(contentUri, artwork.toContentValues());
     }
 
-    /**
-     * Set this {@link MuzeiArtProvider} to only show the given artwork, deleting any other
-     * artwork previously added. Only in the cases where the artwork is successfully inserted
-     * will the other artwork be removed.
-     *
-     * @param artwork The artwork to set
-     * @return The URI of the newly set artwork or null if the insert failed
-     * @see ProviderContract.Artwork#setArtwork(Context, Class, Artwork)
-     */
-    @Nullable
-    protected final Uri setArtwork(@NonNull Artwork artwork) {
-        Uri artworkUri = insert(contentUri, artwork.toContentValues());
-        if (artworkUri != null) {
-            delete(contentUri, BaseColumns._ID + " != ?",
-                    new String[]{Long.toString(ContentUris.parseId(artworkUri))});
+    @Override
+    @NonNull
+    public List<Uri> addArtwork(@NonNull final Iterable<Artwork> artwork) {
+        ArrayList<ContentProviderOperation> operations = new ArrayList<>();
+        for (Artwork art : artwork) {
+            operations.add(ContentProviderOperation.newInsert(contentUri)
+                    .withValues(art.toContentValues())
+                    .build());
         }
-        return artworkUri;
+        ArrayList<Uri> resultUris = new ArrayList<>(operations.size());
+        try {
+            ContentProviderResult[] results = applyBatch(operations);
+            for (ContentProviderResult result : results) {
+                resultUris.add(result.uri);
+            }
+        } catch (OperationApplicationException ignored) {
+        }
+        return resultUris;
+    }
+
+    @Override
+    @Nullable
+    public final Uri setArtwork(@NonNull Artwork artwork) {
+        ArrayList<ContentProviderOperation> operations = new ArrayList<>();
+        operations.add(ContentProviderOperation.newInsert(contentUri)
+                .withValues(artwork.toContentValues())
+                .build());
+        operations.add(ContentProviderOperation.newDelete(contentUri)
+                .withSelection(BaseColumns._ID + " != ?", new String[1])
+                .withSelectionBackReference(0, 0)
+                .build());
+        try {
+            ContentProviderResult[] results = applyBatch(operations);
+            return results[0].uri;
+        } catch (OperationApplicationException e) {
+            Log.e(TAG, "setArtwork failed", e);
+            return null;
+        }
+    }
+
+    @Override
+    @NonNull
+    public List<Uri> setArtwork(@NonNull final Iterable<Artwork> artwork) {
+        ArrayList<ContentProviderOperation> operations = new ArrayList<>();
+        for (Artwork art : artwork) {
+            operations.add(ContentProviderOperation.newInsert(contentUri)
+                    .withValues(art.toContentValues())
+                    .build());
+        }
+        long currentTime = System.currentTimeMillis();
+        ArrayList<Uri> resultUris = new ArrayList<>(operations.size());
+        try {
+            ContentProviderResult[] results = applyBatch(operations);
+            for (ContentProviderResult result : results) {
+                resultUris.add(result.uri);
+            }
+            ArrayList<ContentProviderOperation> deleteOperations = new ArrayList<>();
+            try (Cursor data = query(
+                    contentUri,
+                    new String[] { BaseColumns._ID },
+                    ProviderContract.Artwork.DATE_MODIFIED + "<?",
+                    new String[] { Long.toString(currentTime)},
+                    null)) {
+                while (data.moveToNext()) {
+                    Uri artworkUri = ContentUris.withAppendedId(contentUri,
+                            data.getLong(0));
+                    if (!resultUris.contains(artworkUri)) {
+                        deleteOperations.add(ContentProviderOperation
+                                .newDelete(artworkUri)
+                                .build());
+                    }
+                }
+            }
+            if (!deleteOperations.isEmpty()) {
+                applyBatch(deleteOperations);
+            }
+        } catch (OperationApplicationException ignored) {
+        }
+        return resultUris;
     }
 
     @CallSuper
@@ -339,11 +416,24 @@ public abstract class MuzeiArtProvider extends ContentProvider {
         }
         try {
             switch (method) {
+                case METHOD_GET_VERSION: {
+                    Bundle bundle = new Bundle();
+                    bundle.putInt(KEY_VERSION, BuildConfig.API_VERSION);
+                    return bundle;
+                }
                 case METHOD_REQUEST_LOAD:
                     try (Cursor data = databaseHelper.getReadableDatabase().query(TABLE_NAME,
                             null, null, null, null, null, null,
                             "1")) {
                         onLoadRequested(data == null || data.getCount() == 0);
+                    }
+                    break;
+                case METHOD_MARK_ARTWORK_INVALID:
+                    try (Cursor data = context.getContentResolver().query(Uri.parse(arg),
+                            null, null, null, null)) {
+                        if (data != null && data.moveToNext()) {
+                            onInvalidArtwork(Artwork.fromCursor(data));
+                        }
                     }
                     break;
                 case METHOD_MARK_ARTWORK_LOADED:
@@ -362,6 +452,9 @@ public abstract class MuzeiArtProvider extends ContentProvider {
                         // Update the list of recent artwork ids
                         ArrayDeque<Long> recentArtworkIds = RecentArtworkIdsConverter.fromString(
                                 prefs.getString(PREF_RECENT_ARTWORK_IDS, ""));
+                        // Remove the loadedId if it exists in the list already
+                        recentArtworkIds.remove(loadedId);
+                        // Then add the loadedId to the end of the list
                         recentArtworkIds.addLast(loadedId);
                         int maxSize = Math.min(Math.max(data.getCount(), 1), MAX_RECENT_ARTWORK);
                         while (recentArtworkIds.size() > maxSize) {
@@ -421,10 +514,25 @@ public abstract class MuzeiArtProvider extends ContentProvider {
                             null, null, null, null)) {
                         if (data != null && data.moveToNext()) {
                             Bundle bundle = new Bundle();
+                            @SuppressWarnings("deprecation")
                             boolean success = openArtworkInfo(Artwork.fromCursor(data));
                             bundle.putBoolean(KEY_OPEN_ARTWORK_INFO_SUCCESS, success);
                             if (DEBUG) {
                                 Log.d(TAG, "For " + METHOD_OPEN_ARTWORK_INFO + " returning " + bundle);
+                            }
+                            return bundle;
+                        }
+                    }
+                    break;
+                case METHOD_GET_ARTWORK_INFO:
+                    try (Cursor data = context.getContentResolver().query(Uri.parse(arg),
+                            null, null, null, null)) {
+                        if (data != null && data.moveToNext()) {
+                            Bundle bundle = new Bundle();
+                            PendingIntent artworkInfo = getArtworkInfo(Artwork.fromCursor(data));
+                            bundle.putParcelable(KEY_GET_ARTWORK_INFO, artworkInfo);
+                            if (DEBUG) {
+                                Log.d(TAG, "For " + METHOD_GET_ARTWORK_INFO + " returning " + bundle);
                             }
                             return bundle;
                         }
@@ -449,6 +557,21 @@ public abstract class MuzeiArtProvider extends ContentProvider {
      *                the initial load of this MuzeiArtProvider.
      */
     protected abstract void onLoadRequested(boolean initial);
+
+    /**
+     * Called when Muzei failed to load the given artwork, usually due to an incompatibility
+     * in supported image format. The default behavior is to delete the artwork.
+     * <p>
+     * If you only support a single artwork, you should use this callback as an opportunity
+     * to provide an alternate version of the artwork or a backup image to avoid repeatedly
+     * loading the same artwork, just to mark it as invalid and be left with no valid artwork.
+     *
+     * @param artwork Artwork that Muzei has failed to load
+     */
+    protected void onInvalidArtwork(@NonNull Artwork artwork) {
+        Uri artworkUri = ContentUris.withAppendedId(contentUri, artwork.getId());
+        delete(artworkUri, null, null);
+    }
 
     /**
      * Gets the longer description for the current state of this MuzeiArtProvider. For example,
@@ -504,7 +627,12 @@ public abstract class MuzeiArtProvider extends ContentProvider {
      *
      * @param artwork The artwork the user wants to see more information about.
      * @return True if the artwork info was successfully opened.
+     * @deprecated Override {@link #getArtworkInfo(Artwork)} to return a {@link PendingIntent}
+     * that starts your artwork info. This method will still be called on devices that
+     * have an older version of Muzei installed.
      */
+    @SuppressWarnings("DeprecatedIsStillUsed")
+    @Deprecated
     protected boolean openArtworkInfo(@NonNull Artwork artwork) {
         if (artwork.getWebUri() != null && getContext() != null) {
             try {
@@ -518,6 +646,24 @@ public abstract class MuzeiArtProvider extends ContentProvider {
             }
         }
         return false;
+    }
+
+    /**
+     * Callback when the user wishes to see more information about the given artwork. The default
+     * implementation constructs a {@link PendingIntent} to the
+     * {@link ProviderContract.Artwork#WEB_URI web uri} of the artwork.
+     *
+     * @param artwork The artwork the user wants to see more information about.
+     * @return A {@link PendingIntent} generally constructed with
+     * {@link PendingIntent#getActivity(Context, int, Intent, int)}.
+     */
+    @Nullable
+    protected PendingIntent getArtworkInfo(@NonNull Artwork artwork) {
+        if (artwork.getWebUri() != null && getContext() != null) {
+            Intent intent = new Intent(Intent.ACTION_VIEW, artwork.getWebUri());
+            return PendingIntent.getActivity(getContext(), 0, intent, 0);
+        }
+        return null;
     }
 
     @CallSuper
@@ -544,6 +690,7 @@ public abstract class MuzeiArtProvider extends ContentProvider {
         final SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
         qb.setTables(TABLE_NAME);
         qb.setProjectionMap(allArtworkColumnProjectionMap);
+        qb.setStrict(true);
         final SQLiteDatabase db = databaseHelper.getReadableDatabase();
         if (!uri.equals(contentUri)) {
             // Appends "_ID = <id>" to the where clause, so that it selects the single artwork
@@ -570,6 +717,45 @@ public abstract class MuzeiArtProvider extends ContentProvider {
         }
     }
 
+    @NonNull
+    @Override
+    public final ContentProviderResult[] applyBatch(
+            @NonNull final ArrayList<ContentProviderOperation> operations
+    ) throws OperationApplicationException {
+        changedUris.set(new HashSet<Uri>());
+        final SQLiteDatabase db = databaseHelper.getReadableDatabase();
+        ContentProviderResult[] results;
+        db.beginTransaction();
+        try {
+            applyingBatch.set(true);
+            results = super.applyBatch(operations);
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+            applyingBatch.set(false);
+            onOperationComplete();
+        }
+        return results;
+    }
+
+    @Override
+    public final int bulkInsert(@NonNull final Uri uri, @NonNull final ContentValues[] values) {
+        changedUris.set(new HashSet<Uri>());
+        final SQLiteDatabase db = databaseHelper.getReadableDatabase();
+        int numberInserted;
+        db.beginTransaction();
+        try {
+            applyingBatch.set(true);
+            numberInserted = super.bulkInsert(uri, values);
+            db.setTransactionSuccessful();
+        } finally {
+            db.endTransaction();
+            applyingBatch.set(false);
+            onOperationComplete();
+        }
+        return numberInserted;
+    }
+
     @Nullable
     @Override
     public final Uri insert(@NonNull final Uri uri, @Nullable ContentValues values) {
@@ -590,15 +776,54 @@ public abstract class MuzeiArtProvider extends ContentProvider {
                 values.remove(token);
             } else {
                 try (Cursor existingData = query(contentUri,
-                        new String[]{BaseColumns._ID},
+                        null,
                         ProviderContract.Artwork.TOKEN + "=?",
                         new String[]{token},
                         null)) {
                     if (existingData.moveToFirst()) {
                         // If there's already a row with the same token, update it rather than
                         // inserting a new row
-                        Uri updateUri = ContentUris.withAppendedId(contentUri, existingData.getLong(0));
-                        update(updateUri, values, null, null);
+
+                        // But first check whether there's actually anything changing
+                        String title = existingData.getString(existingData.getColumnIndex(
+                                ProviderContract.Artwork.TITLE));
+                        String byline = existingData.getString(existingData.getColumnIndex(
+                                ProviderContract.Artwork.BYLINE));
+                        String attribution = existingData.getString(existingData.getColumnIndex(
+                                ProviderContract.Artwork.ATTRIBUTION));
+                        String persistentUri = existingData.getString(existingData.getColumnIndex(
+                                ProviderContract.Artwork.PERSISTENT_URI));
+                        String webUri = existingData.getString(existingData.getColumnIndex(
+                                ProviderContract.Artwork.WEB_URI));
+                        String metadata = existingData.getString(existingData.getColumnIndex(
+                                ProviderContract.Artwork.METADATA));
+                        boolean noChange = TextUtils.equals(title, values.getAsString(
+                                ProviderContract.Artwork.TITLE)) &&
+                                TextUtils.equals(byline, values.getAsString(
+                                        ProviderContract.Artwork.BYLINE)) &&
+                                TextUtils.equals(attribution, values.getAsString(
+                                        ProviderContract.Artwork.ATTRIBUTION)) &&
+                                TextUtils.equals(persistentUri, values.getAsString(
+                                        ProviderContract.Artwork.PERSISTENT_URI)) &&
+                                TextUtils.equals(webUri, values.getAsString(
+                                        ProviderContract.Artwork.WEB_URI)) &&
+                                TextUtils.equals(metadata, values.getAsString(
+                                        ProviderContract.Artwork.METADATA));
+                        long id = existingData.getLong(existingData.getColumnIndex(
+                                BaseColumns._ID));
+                        Uri updateUri = ContentUris.withAppendedId(contentUri, id);
+                        if (noChange) {
+                            // Just update the DATE_MODIFIED and don't send a notifyChange()
+                            values.clear();
+                            values.put(ProviderContract.Artwork.DATE_MODIFIED,
+                                    System.currentTimeMillis());
+                            final SQLiteDatabase db = databaseHelper.getWritableDatabase();
+                            db.update(TABLE_NAME, values, BaseColumns._ID + "=?",
+                                    new String[] { Long.toString(id) });
+                        } else {
+                            // Do a full update
+                            update(updateUri, values, null, null);
+                        }
                         return updateUri;
                     }
                 }
@@ -635,8 +860,12 @@ public abstract class MuzeiArtProvider extends ContentProvider {
         db.endTransaction();
         // Creates a URI with the artwork ID pattern and the new row ID appended to it.
         final Uri artworkUri = ContentUris.withAppendedId(contentUri, rowId);
-        Log.d(TAG, "Notified for insert on " + artworkUri);
-        context.getContentResolver().notifyChange(artworkUri, null);
+        if (applyingBatch()) {
+            changedUris.get().add(artworkUri);
+        } else {
+            Log.d(TAG, "Notified for insert on " + artworkUri);
+            context.getContentResolver().notifyChange(artworkUri, null);
+        }
         return artworkUri;
     }
 
@@ -672,8 +901,12 @@ public abstract class MuzeiArtProvider extends ContentProvider {
         // Then delete the rows themselves
         count = db.delete(TABLE_NAME, finalWhere, selectionArgs);
         if (count > 0 && getContext() != null) {
-            Log.d(TAG, "Notified for delete on " + uri);
-            getContext().getContentResolver().notifyChange(uri, null);
+            if (applyingBatch()) {
+                changedUris.get().add(uri);
+            } else {
+                Log.d(TAG, "Notified for delete on " + uri);
+                getContext().getContentResolver().notifyChange(uri, null);
+            }
         }
         return count;
     }
@@ -706,8 +939,12 @@ public abstract class MuzeiArtProvider extends ContentProvider {
         values.put(ProviderContract.Artwork.DATE_MODIFIED, System.currentTimeMillis());
         count = db.update(TABLE_NAME, values, finalWhere, selectionArgs);
         if (count > 0 && getContext() != null) {
-            Log.d(TAG, "Notified for update on " + uri);
-            getContext().getContentResolver().notifyChange(uri, null);
+            if (applyingBatch()) {
+                changedUris.get().add(uri);
+            } else {
+                Log.d(TAG, "Notified for update on " + uri);
+                getContext().getContentResolver().notifyChange(uri, null);
+            }
         }
         return count;
     }
@@ -726,10 +963,20 @@ public abstract class MuzeiArtProvider extends ContentProvider {
             }
             artwork = Artwork.fromCursor(data);
         }
-        //noinspection ConstantConditions
+        if (!isArtworkValid(artwork)) {
+            onInvalidArtwork(artwork);
+            throw new SecurityException("Artwork " + artwork + " was marked as invalid");
+        }
         if (!artwork.getData().exists() && mode.equals("r")) {
             // Download the image from the persistent URI for read-only operations
             // rather than throw a FileNotFoundException
+            File directory = artwork.getData().getParentFile();
+            // Ensure that the parent directory of the artwork exists
+            // as otherwise FileOutputStream will fail
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw new FileNotFoundException("Unable to create directory " +
+                        directory + " for " + artwork);
+            }
             try (InputStream in = openFile(artwork);
                  FileOutputStream out = new FileOutputStream(artwork.getData())) {
                 byte[] buffer = new byte[1024];
@@ -738,17 +985,17 @@ public abstract class MuzeiArtProvider extends ContentProvider {
                     out.write(buffer, 0, bytesRead);
                 }
                 out.flush();
-            } catch (IOException | SecurityException e) {
-                Log.e(TAG, "Unable to open artwork " + artwork + " for " + uri, e);
-                if (e instanceof SecurityException) {
-                    delete(uri, null, null);
+            } catch (Exception e) {
+                if (!(e instanceof IOException)) {
+                    Log.e(TAG, "Unable to open artwork " + artwork + " for " + uri, e);
+                    onInvalidArtwork(artwork);
                 }
                 // Delete the file in cases of an error so that we will try again from scratch next time.
                 if (artwork.getData().exists() && !artwork.getData().delete()) {
                     Log.w(TAG, "Error deleting partially downloaded file after error", e);
                 }
                 throw new FileNotFoundException("Could not download artwork " + artwork
-                        + " for " + uri);
+                        + " for " + uri + ": " + e.getMessage());
             }
         }
         return ParcelFileDescriptor.open(artwork.getData(), ParcelFileDescriptor.parseMode(mode));
@@ -770,6 +1017,26 @@ public abstract class MuzeiArtProvider extends ContentProvider {
     }
 
     /**
+     * Called every time an image is loaded (even if there is a cached
+     * image available). This gives you an opportunity to circumvent the
+     * typical loading process and remove previously cached artwork on
+     * demand. The default implementation always returns <code>true</code>.
+     * <p>
+     * In most cases, you should proactively delete Artwork that you know
+     * is not valid rather than wait for this callback since at this point
+     * the user is specifically waiting for the image to appear.
+     * <p>
+     * The MuzeiArtProvider will call {@link #onInvalidArtwork(Artwork)} for you
+     * if you return <code>false</code>false - there is no need to call this
+     * manually from within this method.
+     * @param artwork The Artwork to confirm
+     * @return Whether the Artwork is valid and should be loaded
+     */
+    public boolean isArtworkValid(@NonNull Artwork artwork) {
+        return true;
+    }
+
+    /**
      * Provide an InputStream to the binary data associated with artwork that has not yet been
      * cached. The default implementation retrieves the image from the
      * {@link Artwork#getPersistentUri() persistent URI} and supports URI schemes in the following
@@ -781,8 +1048,8 @@ public abstract class MuzeiArtProvider extends ContentProvider {
      * <li><code>file:///android_asset/...</code>.</li>
      * <li><code>http://...</code> or <code>https://...</code>.</li>
      * </ul>
-     * Throw a {@link SecurityException} if there is a permanent error that causes the artwork to be
-     * no longer accessible.
+     * Throwing any exception other than an {@link IOException} will be considered a permanent
+     * error that will result in a call to {@link #onInvalidArtwork(Artwork)}.
      *
      * @param artwork The Artwork to open
      * @return A valid {@link InputStream} for the artwork's image
@@ -809,11 +1076,7 @@ public abstract class MuzeiArtProvider extends ContentProvider {
         InputStream in = null;
         if (ContentResolver.SCHEME_CONTENT.equals(scheme)
                 || ContentResolver.SCHEME_ANDROID_RESOURCE.equals(scheme)) {
-            try {
-                in = context.getContentResolver().openInputStream(persistentUri);
-            } catch (SecurityException e) {
-                throw new FileNotFoundException("No access to " + persistentUri + ": " + e.toString());
-            }
+            in = context.getContentResolver().openInputStream(persistentUri);
         } else if (ContentResolver.SCHEME_FILE.equals(scheme)) {
             List<String> segments = persistentUri.getPathSegments();
             if (segments != null && segments.size() > 1

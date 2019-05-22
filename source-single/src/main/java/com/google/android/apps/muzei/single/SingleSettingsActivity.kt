@@ -19,7 +19,9 @@ package com.google.android.apps.muzei.single
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import kotlinx.coroutines.experimental.launch
+import com.google.android.apps.muzei.util.toast
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * Settings Activity which allows users to select a new photo
@@ -36,7 +38,12 @@ class SingleSettingsActivity : Activity() {
             type = "image/*"
             addCategory(Intent.CATEGORY_OPENABLE)
         }
-        startActivityForResult(intent, REQUEST_PHOTO)
+        if (intent.resolveActivity(packageManager) != null) {
+            startActivityForResult(intent, REQUEST_PHOTO)
+        } else {
+            toast(R.string.single_get_content_failure)
+            finish()
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -44,10 +51,10 @@ class SingleSettingsActivity : Activity() {
         data?.data?.takeIf {
             requestCode == REQUEST_PHOTO && resultCode == RESULT_OK
         }?.also { uri ->
-            launch {
+            GlobalScope.launch {
                 val success = SingleArtProvider.setArtwork(
                         this@SingleSettingsActivity, uri)
-                setResult(if (success == true) Activity.RESULT_OK else Activity.RESULT_CANCELED)
+                setResult(if (success) RESULT_OK else RESULT_CANCELED)
                 finish()
             }
         } ?: run {

@@ -16,7 +16,6 @@
 
 package com.google.android.apps.muzei.api;
 
-import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
@@ -25,10 +24,6 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Looper;
 import android.provider.BaseColumns;
-import android.support.annotation.NonNull;
-import android.support.annotation.RequiresPermission;
-import android.support.annotation.StringDef;
-import android.support.annotation.WorkerThread;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -39,6 +34,11 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresPermission;
+import androidx.annotation.StringDef;
+import androidx.annotation.WorkerThread;
 
 /**
  * Contract between Muzei and applications, containing the definitions for all supported URIs and
@@ -134,9 +134,8 @@ public class MuzeiContract {
          */
         public static final String META_FONT_TYPE_ELEGANT = "elegant";
         /**
-         * Column name for the flattened {@link ComponentName} of the source that is providing
-         * this wallpaper
-         * <p>Type: TEXT in the format of {@link ComponentName#flattenToShortString()}
+         * Column name for the authority of the provider for this artwork.
+         * <p>Type: TEXT
          */
         public static final String COLUMN_NAME_SOURCE_COMPONENT_NAME = "sourceComponentName";
         /**
@@ -279,8 +278,8 @@ public class MuzeiContract {
      */
     public static final class Sources implements BaseColumns {
         /**
-         * Column name for the flattened {@link ComponentName} of this source
-         * <p>Type: TEXT in the format of {@link ComponentName#flattenToShortString()}
+         * Column name for the authority of the provider.
+         * <p>Type: TEXT
          */
         public static final String COLUMN_NAME_COMPONENT_NAME = "component_name";
         /**

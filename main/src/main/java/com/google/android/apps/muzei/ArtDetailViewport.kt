@@ -16,8 +16,11 @@
 
 package com.google.android.apps.muzei
 
-import android.arch.lifecycle.MutableLiveData
 import android.graphics.RectF
+import androidx.lifecycle.MutableLiveData
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 // Singleton that can be observed
 object ArtDetailViewport {
@@ -25,9 +28,11 @@ object ArtDetailViewport {
     private val viewport1 = RectF()
     private val observers = mutableListOf<(isFromUser: Boolean) -> Unit>()
     private val changeLiveData = MutableLiveData<Boolean>().apply {
-        // Make sure we trigger observers on the main thread
-        observeForever { isFromUser ->
-            observers.forEach { it.invoke(isFromUser == true) }
+        GlobalScope.launch(Dispatchers.Main.immediate) {
+            // Make sure we trigger observers on the main thread
+            observeForever { isFromUser ->
+                observers.forEach { it.invoke(isFromUser == true) }
+            }
         }
     }
 

@@ -16,12 +16,13 @@
 
 package com.google.android.apps.muzei.widget
 
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.LifecycleOwner
 import android.content.Context
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.util.observe
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * LifecycleObserver which updates the widget when the artwork changes
@@ -45,7 +46,7 @@ class WidgetUpdater(private val context: Context) : DefaultLifecycleObserver {
     }
 
     private fun updateAppWidget() {
-        launch {
+        GlobalScope.launch {
             updateAppWidget(context.applicationContext)
         }
     }

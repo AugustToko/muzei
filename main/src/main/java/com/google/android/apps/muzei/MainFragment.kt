@@ -18,16 +18,14 @@ package com.google.android.apps.muzei
 
 import android.os.Build
 import android.os.Bundle
-import android.support.design.widget.BottomNavigationView
-import android.support.v4.app.Fragment
-import android.support.v4.view.ViewCompat
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
+import androidx.core.view.ViewCompat
+import androidx.fragment.app.Fragment
 import androidx.navigation.findNavController
 import androidx.navigation.ui.setupWithNavController
 import com.google.android.apps.muzei.browse.BrowseProviderFragment
 import com.google.android.apps.muzei.settings.EffectsFragment
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.firebase.analytics.FirebaseAnalytics
 import net.nurik.roman.muzei.R
 
@@ -35,13 +33,9 @@ import net.nurik.roman.muzei.R
  * Fragment which controls the main view of the Muzei app and handles the bottom navigation
  * between various screens.
  */
-class MainFragment : Fragment(), ChooseProviderFragment.Callbacks {
+class MainFragment : Fragment(R.layout.main_fragment), ChooseProviderFragment.Callbacks {
 
     private lateinit var bottomNavigationView: BottomNavigationView
-
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        return inflater.inflate(R.layout.main_fragment, container, false)
-    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         // Set up the container for the child fragments
@@ -51,7 +45,7 @@ class MainFragment : Fragment(), ChooseProviderFragment.Callbacks {
         // Set up the bottom nav
         bottomNavigationView = view.findViewById(R.id.bottom_nav)
         bottomNavigationView.setupWithNavController(navController)
-        navController.addOnNavigatedListener { _, destination ->
+        navController.addOnDestinationChangedListener { _, destination, _ ->
             when (destination.id) {
                 R.id.main_art_details -> {
                     FirebaseAnalytics.getInstance(requireContext())
@@ -100,14 +94,7 @@ class MainFragment : Fragment(), ChooseProviderFragment.Callbacks {
                             0,
                             insets.systemWindowInsetRight,
                             insets.systemWindowInsetBottom))
-            insets.consumeSystemWindowInsets().run {
-                // Workaround for https://issuetracker.google.com/issues/109830520
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    consumeDisplayCutout()
-                } else {
-                    this
-                }
-            }
+            insets.consumeSystemWindowInsets().consumeDisplayCutout()
         }
 
         // Listen for visibility changes to know when to hide our views
@@ -122,7 +109,28 @@ class MainFragment : Fragment(), ChooseProviderFragment.Callbacks {
                         if (!visible) {
                             bottomNavigationView.visibility = View.GONE
                         }
+                        updateNavigationBarColor()
                     }
+        }
+    }
+
+    override fun onViewStateRestored(savedInstanceState: Bundle?) {
+        super.onViewStateRestored(savedInstanceState)
+        updateNavigationBarColor()
+    }
+
+    private fun updateNavigationBarColor() {
+        activity?.window?.apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val lightNavigationBar = resources.getBoolean(R.bool.light_navigation_bar)
+                if (lightNavigationBar) {
+                    decorView.systemUiVisibility = decorView.systemUiVisibility or
+                            View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                } else {
+                    decorView.systemUiVisibility = decorView.systemUiVisibility xor
+                            View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                }
+            }
         }
     }
 

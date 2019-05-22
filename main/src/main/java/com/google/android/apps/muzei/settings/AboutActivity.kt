@@ -18,16 +18,17 @@ package com.google.android.apps.muzei.settings
 
 import android.content.ActivityNotFoundException
 import android.os.Bundle
-import android.support.customtabs.CustomTabsIntent
-import android.support.v4.content.ContextCompat
-import android.support.v7.app.AppCompatActivity
-import android.support.v7.widget.Toolbar
-import android.text.Html
 import android.text.method.LinkMovementMethod
 import android.view.View
 import android.view.ViewPropertyAnimator
 import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
+import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.core.text.HtmlCompat
+import androidx.fragment.app.commit
 import com.google.android.apps.muzei.render.MuzeiRendererFragment
 import com.google.android.apps.muzei.util.AnimatedMuzeiLogoFragment
 import net.nurik.roman.muzei.BuildConfig
@@ -47,10 +48,10 @@ class AboutActivity : AppCompatActivity() {
         (findViewById<View>(R.id.app_bar) as Toolbar).setNavigationOnClickListener { onNavigateUp() }
 
         if (savedInstanceState == null) {
-            supportFragmentManager.beginTransaction()
-                    .add(R.id.demo_view_container,
-                            MuzeiRendererFragment.createInstance(true))
-                    .commit()
+            supportFragmentManager.commit {
+                add(R.id.demo_view_container,
+                        MuzeiRendererFragment.createInstance(true))
+            }
         }
 
         // Build the about body view and append the link to see OSS licenses
@@ -59,8 +60,7 @@ class AboutActivity : AppCompatActivity() {
         }
 
         findViewById<TextView>(R.id.about_body).apply {
-            @Suppress("DEPRECATION")
-            text = Html.fromHtml(getString(R.string.about_body))
+            text = HtmlCompat.fromHtml(getString(R.string.about_body), 0)
             movementMethod = LinkMovementMethod()
         }
 

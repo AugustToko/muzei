@@ -17,21 +17,23 @@
 package com.google.android.apps.muzei.single
 
 import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
+import android.app.PendingIntent
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
-import androidx.core.database.getStringOrNull
 import com.google.android.apps.muzei.api.provider.Artwork
 import com.google.android.apps.muzei.api.provider.MuzeiArtProvider
 import com.google.android.apps.muzei.api.provider.ProviderContract
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.withContext
+import com.google.android.apps.muzei.single.BuildConfig.SINGLE_AUTHORITY
+import com.google.android.apps.muzei.util.getStringOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 
@@ -51,7 +53,7 @@ class SingleArtProvider : MuzeiArtProvider() {
         suspend fun setArtwork(context: Context, artworkUri: Uri): Boolean {
             val tempFile = writeUriToFile(context, artworkUri, getArtworkFile(context))
             if (tempFile != null) {
-                ProviderContract.Artwork.setArtwork(context, SingleArtProvider::class.java,
+                ProviderContract.getProviderClient(context, SINGLE_AUTHORITY).setArtwork(
                         Artwork().apply {
                             title = getDisplayName(context, artworkUri)
                                     ?: context.getString(R.string.single_default_artwork_title)
@@ -81,7 +83,7 @@ class SingleArtProvider : MuzeiArtProvider() {
         private suspend fun writeUriToFile(
                 context: Context, uri:
                 Uri, destFile: File
-        ): File? = withContext(CommonPool) {
+        ): File? = withContext(Dispatchers.Default) {
             try {
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     FileOutputStream(destFile).use { out ->
@@ -126,30 +128,27 @@ class SingleArtProvider : MuzeiArtProvider() {
     }
 
     override fun onLoadRequested(initial: Boolean) {
+        val context = context ?: return
         if (initial) {
-            // Check if there's artwork from the SingleArtSource to import
             if (getArtworkFile(context).exists()) {
-                SingleArtSource.migrateToProvider(context)
+                setArtwork(Artwork().apply {
+                    title = context.getString(R.string.single_default_artwork_title)
+                })
             }
         }
         // There's always only one artwork for this provider,
         // so there's never any additional artwork to load
     }
 
-    override fun openArtworkInfo(artwork: Artwork): Boolean {
+    override fun getArtworkInfo(artwork: Artwork): PendingIntent? {
+        val context = context ?: return null
         val uri = ContentUris.withAppendedId(contentUri, artwork.id)
-        return try {
-            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "image/*")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            })
-            true
-        } catch (e: ActivityNotFoundException) {
-            Log.w(TAG, "Could not open artwork info for $uri", e)
-            false
-        }
+        return PendingIntent.getActivity(context, 0, Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "image/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, 0)
     }
 
-    override fun openFile(artwork: Artwork) = FileInputStream(getArtworkFile(context))
+    override fun openFile(artwork: Artwork) = FileInputStream(getArtworkFile(
+            context ?: throw FileNotFoundException("Invalid Context")))
 }

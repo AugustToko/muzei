@@ -21,10 +21,10 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.SystemClock
-import android.support.v4.content.ContextCompat
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
+import androidx.core.content.ContextCompat
 import java.util.Random
 
 /**
@@ -99,8 +99,8 @@ class GalleryEmptyStateGraphicView
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         setMeasuredDimension(
-                View.resolveSize(COLS * cellSize + (COLS - 1) * cellSpacing, widthMeasureSpec),
-                View.resolveSize(ROWS * cellSize + (ROWS - 1) * cellSpacing, heightMeasureSpec))
+                resolveSize(COLS * cellSize + (COLS - 1) * cellSpacing, widthMeasureSpec),
+                resolveSize(ROWS * cellSize + (ROWS - 1) * cellSpacing, heightMeasureSpec))
     }
 
     override fun onDraw(canvas: Canvas) {

@@ -16,32 +16,41 @@
 
 package com.google.android.apps.muzei
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
+import androidx.core.os.bundleOf
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.room.openArtworkInfo
-import kotlinx.coroutines.experimental.launch
+import com.google.firebase.analytics.FirebaseAnalytics
 
 /**
  * Open the Artwork Info associated with the current artwork
  */
-class ArtworkInfoRedirectActivity : Activity() {
+class ArtworkInfoRedirectActivity : FragmentActivity() {
     companion object {
-        fun getIntent(context: Context): Intent =
+        private const val EXTRA_FROM = "from"
+
+        fun getIntent(context: Context, from: String): Intent =
                 Intent(context, ArtworkInfoRedirectActivity::class.java).apply {
                     action = "com.google.android.apps.muzei.OPEN_ARTWORK_INFO"
+                    putExtra(EXTRA_FROM, from)
                 }
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        launch {
+    init {
+        lifecycleScope.launchWhenCreated {
             val artwork = MuzeiDatabase.getInstance(this@ArtworkInfoRedirectActivity)
                     .artworkDao()
                     .getCurrentArtwork()
-            artwork?.openArtworkInfo(this@ArtworkInfoRedirectActivity)
+            artwork?.run {
+                val from = intent?.getStringExtra(EXTRA_FROM) ?: "activity_shortcut"
+                FirebaseAnalytics.getInstance(this@ArtworkInfoRedirectActivity).logEvent(
+                        "artwork_info_open", bundleOf(
+                        FirebaseAnalytics.Param.CONTENT_TYPE to from))
+                openArtworkInfo(this@ArtworkInfoRedirectActivity)
+            }
             finish()
         }
     }

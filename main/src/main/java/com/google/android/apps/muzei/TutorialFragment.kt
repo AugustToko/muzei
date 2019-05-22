@@ -22,20 +22,19 @@ import android.graphics.drawable.AnimatedVectorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.preference.PreferenceManager
-import android.support.v4.app.Fragment
-import android.support.v4.content.res.ResourcesCompat
 import android.util.TypedValue
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import androidx.core.animation.doOnEnd
 import androidx.core.content.edit
+import androidx.core.content.res.ResourcesCompat
+import androidx.core.view.ViewCompat
+import androidx.fragment.app.Fragment
 import com.google.firebase.analytics.FirebaseAnalytics
 import net.nurik.roman.muzei.R
 
-class TutorialFragment : Fragment() {
+class TutorialFragment : Fragment(R.layout.tutorial_fragment) {
 
     companion object {
         const val PREF_SEEN_TUTORIAL = "seen_tutorial"
@@ -43,18 +42,9 @@ class TutorialFragment : Fragment() {
 
     private val runningAnimators = mutableListOf<AnimatorSet>()
 
-    override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.tutorial_fragment, container, false)
-    }
-
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         // Ensure we have the latest insets
-        @Suppress("DEPRECATION")
-        view.requestFitSystemWindows()
+        ViewCompat.requestApplyInsets(view)
         view.findViewById<View>(R.id.tutorial_icon_affordance).setOnClickListener {
             FirebaseAnalytics.getInstance(requireContext())
                     .logEvent(FirebaseAnalytics.Event.TUTORIAL_COMPLETE, null)

@@ -24,6 +24,7 @@ import android.database.MatrixCursor
 import android.graphics.Bitmap
 import android.graphics.Point
 import android.net.Uri
+import android.os.Binder
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
@@ -32,7 +33,7 @@ import android.util.Log
 import com.google.android.apps.muzei.render.ImageLoader
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import kotlinx.coroutines.experimental.runBlocking
+import kotlinx.coroutines.runBlocking
 import net.nurik.roman.muzei.androidclientcommon.BuildConfig
 import net.nurik.roman.muzei.androidclientcommon.R
 import java.io.File
@@ -97,10 +98,10 @@ class MuzeiDocumentsProvider : DocumentsProvider() {
         val context = context ?: return result
 
         val likeAnyPositionQuery = "%$query%"
-        includeAllArtwork(result, runBlocking {
-            MuzeiDatabase.getInstance(context).artworkDao()
-                    .searchArtwork(likeAnyPositionQuery)
-        })
+        runBlocking {
+            includeAllArtwork(result, MuzeiDatabase.getInstance(context).artworkDao()
+                    .searchArtwork(likeAnyPositionQuery))
+        }
         return result
     }
 
@@ -121,10 +122,10 @@ class MuzeiDocumentsProvider : DocumentsProvider() {
         val result = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
         val context = context ?: return result
         if (ROOT_DOCUMENT_ID == parentDocumentId) {
-            includeAllArtwork(result, runBlocking {
-                MuzeiDatabase.getInstance(context).artworkDao()
-                        .getArtwork()
-            })
+            runBlocking {
+                includeAllArtwork(result, MuzeiDatabase.getInstance(context).artworkDao()
+                        .getArtwork())
+            }
             result.setNotificationUri(context.contentResolver,
                     DocumentsContract.buildDocumentUri(BuildConfig.DOCUMENTS_AUTHORITY,
                             ROOT_DOCUMENT_ID))
@@ -132,12 +133,10 @@ class MuzeiDocumentsProvider : DocumentsProvider() {
         return result
     }
 
-    private fun includeAllArtwork(result: MatrixCursor, artworkList: List<Artwork>) {
+    private suspend fun includeAllArtwork(result: MatrixCursor, artworkList: List<Artwork>) {
         val context = context ?: return
-        val currentArtworkId = ensureBackground {
-            MuzeiDatabase.getInstance(context).artworkDao()
-                    .currentArtworkBlocking?.id
-        } ?: -1
+        val currentArtworkId = MuzeiDatabase.getInstance(context).artworkDao()
+                .getCurrentArtwork()?.id ?: -1
         for (artwork in artworkList) {
             result.newRow().apply {
                 add(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -174,18 +173,23 @@ class MuzeiDocumentsProvider : DocumentsProvider() {
                 // so just return an empty result
                 return result
             }
-            val artwork = runBlocking {
-                MuzeiDatabase.getInstance(context).artworkDao()
-                        .getArtworkById(artworkId)
-            }
-            if (artwork != null) {
-                includeAllArtwork(result, listOf(artwork))
-            } else {
-                // The artwork isn't there anymore. Delete it to
-                // revoke any document permissions attached to it
-                DocumentsContract.deleteDocument(context.contentResolver,
-                        DocumentsContract.buildDocumentUri(BuildConfig.DOCUMENTS_AUTHORITY,
-                                documentId))
+            runBlocking {
+                val token = Binder.clearCallingIdentity()
+                try {
+                    val artwork = MuzeiDatabase.getInstance(context).artworkDao()
+                            .getArtworkById(artworkId)
+                    if (artwork != null) {
+                        includeAllArtwork(result, listOf(artwork))
+                    } else {
+                            // The artwork isn't there anymore. Delete it to
+                            // revoke any document permissions attached to it
+                            DocumentsContract.deleteDocument(context.contentResolver,
+                                    DocumentsContract.buildDocumentUri(BuildConfig.DOCUMENTS_AUTHORITY,
+                                            documentId))
+                    }
+                } finally {
+                    Binder.restoreCallingIdentity(token)
+                }
             }
         }
         return result
@@ -195,6 +199,7 @@ class MuzeiDocumentsProvider : DocumentsProvider() {
     override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor? {
         val contentResolver = context?.contentResolver ?: return null
         val artworkId = documentId.toLong()
+        val token = Binder.clearCallingIdentity()
         try {
             return contentResolver.openFileDescriptor(Artwork.getContentUri(artworkId), mode, signal)
         } catch (e: FileNotFoundException) {
@@ -203,6 +208,8 @@ class MuzeiDocumentsProvider : DocumentsProvider() {
             DocumentsContract.deleteDocument(contentResolver,
                     DocumentsContract.buildDocumentUri(BuildConfig.DOCUMENTS_AUTHORITY, documentId))
             throw e
+        } finally {
+            Binder.restoreCallingIdentity(token)
         }
     }
 
@@ -214,7 +221,12 @@ class MuzeiDocumentsProvider : DocumentsProvider() {
     ): AssetFileDescriptor? {
         val artworkId = documentId.toLong()
         return runBlocking {
-            openArtworkThumbnail(Artwork.getContentUri(artworkId), sizeHint)
+            val token = Binder.clearCallingIdentity()
+            try {
+                openArtworkThumbnail(Artwork.getContentUri(artworkId), sizeHint)
+            } finally {
+                Binder.restoreCallingIdentity(token)
+            }
         }
     }
 

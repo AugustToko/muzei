@@ -16,12 +16,14 @@
 
 package com.google.android.apps.muzei.notifications
 
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.LifecycleOwner
 import android.content.Context
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.util.observeNonNull
-import kotlinx.coroutines.experimental.launch
+import com.google.android.apps.muzei.util.filterNotNull
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * LifecycleObserver which updates the notification when the artwork changes
@@ -31,8 +33,9 @@ class NotificationUpdater(private val context: Context) : DefaultLifecycleObserv
     override fun onCreate(owner: LifecycleOwner) {
         // Update notifications whenever the artwork changes
         MuzeiDatabase.getInstance(context).artworkDao().currentArtwork
-                .observeNonNull(owner) {
-            launch {
+                .filterNotNull()
+                .observe(owner) {
+            GlobalScope.launch {
                 NewWallpaperNotificationReceiver
                         .maybeShowNewArtworkNotification(context)
             }

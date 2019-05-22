@@ -16,62 +16,51 @@
 
 package com.google.android.apps.muzei.browse
 
-import android.arch.lifecycle.ViewModelProvider
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import android.support.v4.app.Fragment
-import android.support.v4.content.ContextCompat
-import android.support.v7.graphics.drawable.DrawerArrowDrawable
-import android.support.v7.recyclerview.extensions.ListAdapter
-import android.support.v7.util.DiffUtil
-import android.support.v7.widget.RecyclerView
-import android.support.v7.widget.Toolbar
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
-import androidx.core.widget.toast
+import androidx.appcompat.graphics.drawable.DrawerArrowDrawable
+import androidx.appcompat.widget.Toolbar
+import androidx.core.content.ContextCompat
+import androidx.core.os.bundleOf
+import androidx.core.view.ViewCompat
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.observe
 import androidx.navigation.fragment.findNavController
+import androidx.navigation.fragment.navArgs
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.util.observe
-import com.squareup.picasso.Picasso
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.android.UI
-import kotlinx.coroutines.experimental.launch
-import kotlinx.coroutines.experimental.withContext
+import com.google.android.apps.muzei.util.toast
+import com.google.firebase.analytics.FirebaseAnalytics
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import net.nurik.roman.muzei.R
 
-class BrowseProviderFragment: Fragment() {
-    private val viewModelProvider by lazy {
-        ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory
-                .getInstance(requireActivity().application))
-    }
-    private val viewModel by lazy {
-        viewModelProvider[BrowseProviderViewModel::class.java]
-    }
-    private val adapter = Adapter()
+class BrowseProviderFragment: Fragment(R.layout.browse_provider_fragment) {
 
-    override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.browse_provider_fragment, container, false)
-    }
+    private val viewModel: BrowseProviderViewModel by viewModels()
+    private val args: BrowseProviderFragmentArgs by navArgs()
+    private val adapter = Adapter()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         // Ensure we have the latest insets
-        @Suppress("DEPRECATION")
-        view.requestFitSystemWindows()
+        ViewCompat.requestApplyInsets(view)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             requireActivity().window.statusBarColor = ContextCompat.getColor(
                     requireContext(), R.color.theme_primary_dark)
         }
 
-        val args = BrowseProviderFragmentArgs.fromBundle(arguments)
         val pm = requireContext().packageManager
         val providerInfo = pm.resolveContentProvider(args.contentUri.authority, 0)
                 ?: run {
@@ -103,23 +92,28 @@ class BrowseProviderFragment: Fragment() {
         }
     }
 
-    class ArtViewHolder(itemView: View): RecyclerView.ViewHolder(itemView) {
+    class ArtViewHolder(
+            private val coroutineScope: CoroutineScope,
+            itemView: View
+    ): RecyclerView.ViewHolder(itemView) {
         private val imageView = itemView.findViewById<ImageView>(R.id.browse_image)
 
         fun bind(artwork: Artwork) {
             imageView.contentDescription = artwork.title
-            Picasso.get()
+            Glide.with(imageView)
                     .load(artwork.imageUri)
-                    .centerCrop()
-                    .fit()
                     .into(imageView)
             itemView.setOnClickListener {
                 val context = it.context
-                launch(UI) {
-                    withContext(CommonPool) {
-                        MuzeiDatabase.getInstance(context).artworkDao()
-                                .insert(artwork)
-                    }
+                coroutineScope.launch(Dispatchers.Main) {
+                    FirebaseAnalytics.getInstance(context).logEvent(
+                            FirebaseAnalytics.Event.SELECT_CONTENT, bundleOf(
+                            FirebaseAnalytics.Param.ITEM_ID to artwork.id,
+                            FirebaseAnalytics.Param.ITEM_NAME to artwork.title,
+                            FirebaseAnalytics.Param.ITEM_CATEGORY to "artwork",
+                            FirebaseAnalytics.Param.CONTENT_TYPE to "browse"))
+                    MuzeiDatabase.getInstance(context).artworkDao()
+                            .insert(artwork)
                     context.toast(if (artwork.title.isNullOrBlank()) {
                         context.getString(R.string.browse_set_wallpaper)
                     } else {
@@ -127,7 +121,6 @@ class BrowseProviderFragment: Fragment() {
                                 artwork.title)
                     })
                 }
-
             }
         }
     }
@@ -142,8 +135,8 @@ class BrowseProviderFragment: Fragment() {
             }
     ) {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
-                ArtViewHolder(layoutInflater.inflate(
-                        R.layout.browse_provider_item, parent, false))
+                ArtViewHolder(viewLifecycleOwner.lifecycleScope,
+                        layoutInflater.inflate(R.layout.browse_provider_item, parent, false))
 
         override fun onBindViewHolder(holder: ArtViewHolder, position: Int) {
             holder.bind(getItem(position))

@@ -17,17 +17,12 @@
 package com.google.android.apps.muzei
 
 import android.annotation.SuppressLint
-import android.arch.lifecycle.Lifecycle
-import android.arch.lifecycle.LifecycleOwner
-import android.arch.lifecycle.LifecycleRegistry
-import android.arch.lifecycle.Observer
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -39,7 +34,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Message
 import android.preference.PreferenceManager
-import android.support.v4.content.res.ResourcesCompat
 import android.support.wearable.complications.ComplicationData
 import android.support.wearable.complications.SystemProviders
 import android.support.wearable.complications.rendering.ComplicationDrawable
@@ -51,22 +45,28 @@ import android.util.Log
 import android.view.Gravity
 import android.view.SurfaceHolder
 import androidx.core.content.edit
+import androidx.core.content.res.ResourcesCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.complications.ArtworkComplicationProviderService
-import com.google.android.apps.muzei.datalayer.DataLayerArtProvider
+import com.google.android.apps.muzei.datalayer.ActivateMuzeiIntentService
+import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
 import com.google.android.apps.muzei.render.ImageLoader
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.room.select
 import com.google.android.apps.muzei.sync.ProviderManager
 import com.google.android.apps.muzei.util.ImageBlurrer
 import com.google.android.apps.muzei.util.blur
-import com.google.android.apps.muzei.util.observe
 import com.google.firebase.analytics.FirebaseAnalytics
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import net.nurik.roman.muzei.BuildConfig
 import net.nurik.roman.muzei.R
 import java.io.FileNotFoundException
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -110,11 +110,14 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
         FirebaseAnalytics.getInstance(this).setUserProperty("device_type", BuildConfig.DEVICE_TYPE)
         ProviderManager.getInstance(this).observe(this) { provider ->
             if (provider == null) {
-                launch {
-                    DataLayerArtProvider::class.select(this@MuzeiWatchFace)
+                val context = this@MuzeiWatchFace
+                GlobalScope.launch {
+                    ProviderManager.select(context, FEATURED_ART_AUTHORITY)
+                    ActivateMuzeiIntentService.checkForPhoneApp(context)
                 }
             }
         }
+        ProviderChangedReceiver.observeForVisibility(this, this)
     }
 
     override fun onCreateEngine(): CanvasWatchFaceService.Engine {
@@ -223,7 +226,7 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "Artwork = ${artwork?.contentUri}")
                 }
-                launch {
+                lifecycleScope.launch {
                     val bitmap: Bitmap? = try {
                         artwork?.run {
                             ImageLoader.decode(contentResolver, contentUri)
@@ -231,15 +234,6 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
                     } catch (e: FileNotFoundException) {
                         Log.w(TAG, "Could not find current artwork image", e)
                         null
-                    } ?: run {
-                        // We'll get another callback when the real artwork is loaded, but
-                        // we should show something to the users right away
-                        try {
-                            BitmapFactory.decodeStream(assets.open("starrynight.jpg"))
-                        } catch (e: IOException) {
-                            Log.e(TAG, "Error opening starry night asset", e)
-                            null
-                        }
                     }
 
                     if (bitmap != null && !bitmap.sameAs(backgroundBitmap)) {
@@ -327,7 +321,7 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
         private fun updateBlurredStatus() {
             val preferences = PreferenceManager.getDefaultSharedPreferences(this@MuzeiWatchFace)
             tapAction = preferences.getString(ConfigActivity.TAP_PREFERENCE_KEY,
-                    getString(R.string.config_tap_default))
+                    null) ?: getString(R.string.config_tap_default)
             blurred = when(tapAction) {
                 "always" -> true
                 "never" -> false
@@ -512,10 +506,10 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
             when (tapType) {
                 WatchFaceService.TAP_TYPE_TAP -> {
                     when {
-                        topComplication?.onTap(x, y) == true -> {
+                        topComplication?.safeOnTap(x, y) == true -> {
                             invalidate()
                         }
-                        bottomComplication?.onTap(x, y) == true -> {
+                        bottomComplication?.safeOnTap(x, y) == true -> {
                             invalidate()
                         }
                         tapAction == "toggle" -> {

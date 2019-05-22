@@ -16,14 +16,13 @@
 
 <manifest
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     package="com.google.android.apps.muzei.single">
 
     <application>
 
         <provider
             android:name="com.google.android.apps.muzei.single.SingleArtProvider"
-            android:authorities="com.google.android.apps.muzei.single"
+            android:authorities="${singleAuthority}"
             android:description="@string/single_description"
             android:icon="@drawable/single_ic_launcher"
             android:label="@string/single_title"
@@ -41,26 +40,13 @@
         </provider>
         <service
             android:name="com.google.android.apps.muzei.single.SingleArtSource"
-            android:description="@string/single_description"
-            android:icon="@drawable/single_ic_source"
-            android:label="@string/single_title"
-            tools:ignore="ExportedService">
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.google.android.apps.muzei.api.MuzeiArtSource"/>
             </intent-filter>
-
-            <meta-data
-                android:name="settingsActivity"
-                android:value="com.google.android.apps.muzei.single.SingleSettingsActivity"/>
-            <meta-data
-                android:name="setupActivity"
-                android:value="com.google.android.apps.muzei.single.SingleSetupActivity"/>
-            <meta-data
-                android:name="color"
-                android:value="#9e9e9e"/>
             <meta-data
                 android:name="replacement"
-                android:value="com.google.android.apps.muzei.single.SingleArtProvider"/>
+                android:value="${singleAuthority}"/>
         </service>
 
         <activity

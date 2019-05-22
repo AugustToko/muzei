@@ -24,7 +24,6 @@ import com.google.android.gms.wearable.WearableListenerService
  */
 class ArtworkChangedListenerService : WearableListenerService() {
     override fun onDataChanged(dataEvents: DataEventBuffer) {
-        // Only artwork changes trigger this WearableListenerService
         DataLayerLoadWorker.enqueueLoad()
     }
 }

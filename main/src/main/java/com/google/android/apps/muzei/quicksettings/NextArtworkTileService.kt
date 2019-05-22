@@ -17,10 +17,6 @@
 package com.google.android.apps.muzei.quicksettings
 
 import android.app.WallpaperManager
-import android.arch.lifecycle.Lifecycle
-import android.arch.lifecycle.LifecycleOwner
-import android.arch.lifecycle.LifecycleRegistry
-import android.arch.lifecycle.LiveData
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
@@ -28,18 +24,25 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import android.support.annotation.RequiresApi
 import android.widget.Toast
-import androidx.core.widget.toast
+import androidx.annotation.RequiresApi
+import androidx.core.os.bundleOf
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.MuzeiWallpaperService
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.room.Provider
 import com.google.android.apps.muzei.sources.SourceManager
 import com.google.android.apps.muzei.sources.allowsNextArtwork
-import com.google.android.apps.muzei.util.observe
+import com.google.android.apps.muzei.util.toast
 import com.google.android.apps.muzei.wallpaper.WallpaperActiveState
 import com.google.firebase.analytics.FirebaseAnalytics
-import kotlinx.coroutines.experimental.runBlocking
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import net.nurik.roman.muzei.R
 
 /**
@@ -106,9 +109,12 @@ class NextArtworkTileService : TileService(), LifecycleOwner {
         qsTile?.run {
             when (state) {
                 Tile.STATE_ACTIVE -> { // Active means we send the 'Next Artwork' command
-                    FirebaseAnalytics.getInstance(context).logEvent(
-                            "tile_next_artwork_click", null)
-                    SourceManager.nextArtwork(context)
+                    GlobalScope.launch {
+                        FirebaseAnalytics.getInstance(context).logEvent(
+                                "next_artwork", bundleOf(
+                                FirebaseAnalytics.Param.CONTENT_TYPE to "tile"))
+                        SourceManager.nextArtwork(context)
+                    }
                 }
                 else -> unlockAndRun {
                     // Inactive means we attempt to activate Muzei

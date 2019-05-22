@@ -22,16 +22,15 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
-    implementation "androidx.core:core-ktx:$rootProject.ext.ktxVersion"
-    implementation ("android.arch.work:work-runtime-ktx:$workManagerVersion") {
-        exclude module: 'support-fragment'
+    implementation "androidx.core:core-ktx:$coreVersion"
+    implementation ("androidx.work:work-runtime-ktx:$workManagerVersion") {
+        exclude module: 'fragment'
     }
     implementation project(':muzei-api')
+    implementation project(':extensions')
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
-    implementation "com.android.support:customtabs:$supportLibraryVersion"
+    implementation "androidx.browser:browser:$browserVersion"
 }
-
-kotlin.experimental.coroutines "enable"
 
 android {
     resourcePrefix 'featuredart_'
@@ -41,6 +40,10 @@ android {
     defaultConfig {
         minSdkVersion 19
         targetSdkVersion rootProject.ext.targetSdkVersion
+
+        def featuredArtAuthorityValue = "com.google.android.apps.muzei.featuredart"
+        manifestPlaceholders = [featuredArtAuthority: featuredArtAuthorityValue]
+        buildConfigField "String", "FEATURED_ART_AUTHORITY", "\"${featuredArtAuthorityValue}\""
     }
 
     buildTypes {

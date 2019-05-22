@@ -17,22 +17,24 @@
 package com.google.android.apps.muzei.sources
 
 import android.annotation.SuppressLint
+import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
 import android.widget.Toast
-import androidx.core.widget.toast
 import com.google.android.apps.muzei.api.MuzeiArtSource
 import com.google.android.apps.muzei.api.UserCommand
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.ACTION_HANDLE_COMMAND
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.EXTRA_COMMAND_ID
 import com.google.android.apps.muzei.api.provider.Artwork
 import com.google.android.apps.muzei.api.provider.MuzeiArtProvider
-import com.google.android.apps.muzei.featuredart.FeaturedArtProvider
+import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.room.select
-import kotlinx.coroutines.experimental.android.UI
-import kotlinx.coroutines.experimental.launch
+import com.google.android.apps.muzei.sync.ProviderManager
+import com.google.android.apps.muzei.util.toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import net.nurik.roman.muzei.BuildConfig
 import net.nurik.roman.muzei.R
 import okhttp3.Request
@@ -57,24 +59,27 @@ class SourceArtProvider : MuzeiArtProvider() {
         // else, Sources will load on their own schedule
     }
 
-    override fun getDescription(): String =
-            MuzeiDatabase.getInstance(context).sourceDao().currentSourceBlocking?.run {
-                listOf(label, displayDescription)
-                        .filterNot { it.isNullOrEmpty() }
-                        .joinToString(separator = ": ")
-            } ?: ""
+    override fun getDescription(): String = context?.let { context ->
+        MuzeiDatabase.getInstance(context).sourceDao().currentSourceBlocking?.run {
+            listOf(label, displayDescription)
+                    .asSequence()
+                    .filterNot { it.isNullOrEmpty() }
+                    .joinToString(separator = ": ")
+        }
+    } ?: ""
 
     @SuppressLint("Range")
-    override fun getCommands(artwork: Artwork): List<UserCommand> =
-            MuzeiDatabase.getInstance(context).sourceDao().currentSourceBlocking?.run{
-                mutableListOf<UserCommand>().apply{
-                    if (supportsNextArtwork) {
-                        add(UserCommand(MuzeiArtSource.BUILTIN_COMMAND_ID_NEXT_ARTWORK,
-                                context.getString(R.string.action_next_artwork)))
-                    }
-                    addAll(commands)
+    override fun getCommands(artwork: Artwork): List<UserCommand> = context?.let { context ->
+        MuzeiDatabase.getInstance(context).sourceDao().currentSourceBlocking?.run {
+            mutableListOf<UserCommand>().apply {
+                if (supportsNextArtwork) {
+                    add(UserCommand(MuzeiArtSource.BUILTIN_COMMAND_ID_NEXT_ARTWORK,
+                            context.getString(R.string.action_next_artwork)))
                 }
-            } ?: super.getCommands(artwork)
+                addAll(commands)
+            }
+        }
+    } ?: super.getCommands(artwork)
 
     override fun onCommand(artwork: Artwork, id: Int) {
         if (BuildConfig.DEBUG) {
@@ -83,7 +88,8 @@ class SourceArtProvider : MuzeiArtProvider() {
         sendAction(id)
     }
 
-    private fun sendAction(id: Int) = launch {
+    private fun sendAction(id: Int) = GlobalScope.launch(Dispatchers.Main) {
+        val context = context ?: return@launch
         MuzeiDatabase.getInstance(context).sourceDao().getCurrentSource()?.componentName?.run {
             try {
                 if (BuildConfig.DEBUG) {
@@ -96,51 +102,38 @@ class SourceArtProvider : MuzeiArtProvider() {
                         .putExtra(EXTRA_COMMAND_ID, id))
             } catch (e: PackageManager.NameNotFoundException) {
                 Log.i(TAG, "Sending action $id to $this failed; switching to default.", e)
-                launch(UI) {
-                    context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
-                }
-                FeaturedArtProvider::class.select(context)
+                context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
+                ProviderManager.select(context, FEATURED_ART_AUTHORITY)
             } catch (e: IllegalStateException) {
                 Log.i(TAG, "Sending action $id to $this failed; switching to default.", e)
-                launch(UI) {
-                    context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
-                }
-                FeaturedArtProvider::class.select(context)
+                context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
+                ProviderManager.select(context, FEATURED_ART_AUTHORITY)
             } catch (e: SecurityException) {
                 Log.i(TAG, "Sending action $id to $this failed; switching to default.", e)
-                launch(UI) {
-                    context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
-                }
-                FeaturedArtProvider::class.select(context)
+                context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
+                ProviderManager.select(context, FEATURED_ART_AUTHORITY)
             }
         }
     }
 
-    override fun openArtworkInfo(artwork: Artwork): Boolean =
-            artwork.webUri?.let { webUri ->
-                return try {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "Opening artwork info for ${artwork.id}")
-                    }
-                    // Try to parse the metadata as an Intent
-                    Intent.parseUri(webUri.toString(), Intent.URI_INTENT_SCHEME)?.run {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        // Make sure any data URIs granted to Muzei are passed onto the started Activity
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        return try {
-                            context.startActivity(this).run { true }
-                        } catch (e: RuntimeException) {
-                            // Catch ActivityNotFoundException, SecurityException,
-                            // and FileUriExposedException
-                            Log.w(TAG, "Unable to start view Intent ${this}", e)
-                            false
-                        }
-                    } ?: false
-                } catch (e: URISyntaxException) {
-                    Log.i(TAG, "Unable to parse viewIntent ${this}", e)
-                    false
-                }
-            } ?: false
+    override fun getArtworkInfo(artwork: Artwork): PendingIntent? {
+        val context = context ?: return null
+        val webUri = artwork.webUri ?: return null
+        try {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Opening artwork info for ${artwork.id}")
+            }
+            // Try to parse the metadata as an Intent
+            Intent.parseUri(webUri.toString(), Intent.URI_INTENT_SCHEME)?.run {
+                // Make sure any data URIs granted to Muzei are passed onto the started Activity
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                return PendingIntent.getActivity(context, 0, this, 0)
+            }
+        } catch (e: URISyntaxException) {
+            Log.i(TAG, "Unable to parse viewIntent ${this}", e)
+        }
+        return null
+    }
 
     override fun openFile(artwork: Artwork) =
             artwork.persistentUri?.takeIf {

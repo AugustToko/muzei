@@ -17,7 +17,6 @@
 package com.google.android.apps.muzei.render
 
 import android.app.ActivityManager
-import android.arch.lifecycle.MutableLiveData
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -25,9 +24,10 @@ import android.graphics.RectF
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
-import android.support.annotation.Keep
 import android.util.Log
 import android.view.animation.AccelerateDecelerateInterpolator
+import androidx.annotation.Keep
+import androidx.lifecycle.MutableLiveData
 import com.google.android.apps.muzei.ArtDetailViewport
 import com.google.android.apps.muzei.settings.Prefs
 import com.google.android.apps.muzei.util.ImageBlurrer
@@ -99,6 +99,9 @@ class MuzeiBlurRenderer(
 
     var isBlurred = true
         private set
+    private var blurPreferenceName = Prefs.PREF_BLUR_AMOUNT
+    private var dimPreferenceName = Prefs.PREF_DIM_AMOUNT
+    private var greyPreferenceName = Prefs.PREF_GREY_AMOUNT
     private var blurRelatedToArtDetailMode = false
     private val blurInterpolator = AccelerateDecelerateInterpolator()
     private val blurAnimator = TickingFloatAnimator(BLUR_ANIMATION_DURATION * if (demoMode) 5 else 1)
@@ -117,13 +120,16 @@ class MuzeiBlurRenderer(
         recomputeGreyAmount()
     }
 
-    fun recomputeMaxPrescaledBlurPixels() {
+    fun recomputeMaxPrescaledBlurPixels(
+            newBlurPreferenceName: String = blurPreferenceName
+    ) {
+        blurPreferenceName = newBlurPreferenceName
         // Compute blur sizes
         val blurAmount = if (demoMode)
             DEMO_BLUR
         else
             Prefs.getSharedPreferences(context)
-                    .getInt(Prefs.PREF_BLUR_AMOUNT, DEFAULT_BLUR)
+                    .getInt(blurPreferenceName, DEFAULT_BLUR)
         val maxBlurRadiusOverScreenHeight = blurAmount * 0.0001f
         val dm = context.resources.displayMetrics
         val maxBlurPx = (dm.heightPixels * maxBlurRadiusOverScreenHeight).toInt()
@@ -134,17 +140,23 @@ class MuzeiBlurRenderer(
         maxPrescaledBlurPixels = maxBlurPx / blurredSampleSize
     }
 
-    fun recomputeMaxDimAmount() {
+    fun recomputeMaxDimAmount(
+            newDimPreferenceName: String = dimPreferenceName
+    ) {
+        dimPreferenceName = newDimPreferenceName
         maxDim = Prefs.getSharedPreferences(context).getInt(
-                Prefs.PREF_DIM_AMOUNT, DEFAULT_MAX_DIM)
+                dimPreferenceName, DEFAULT_MAX_DIM)
     }
 
-    fun recomputeGreyAmount() {
+    fun recomputeGreyAmount(
+            newGreyPreferenceName: String = greyPreferenceName
+    ) {
+        greyPreferenceName = newGreyPreferenceName
         maxGrey = if (demoMode)
             DEMO_GREY
         else
             Prefs.getSharedPreferences(context)
-                    .getInt(Prefs.PREF_GREY_AMOUNT, DEFAULT_GREY)
+                    .getInt(greyPreferenceName, DEFAULT_GREY)
     }
 
     override fun onSurfaceCreated(unused: GL10, config: EGLConfig) {

@@ -20,12 +20,15 @@ import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.BaseColumns;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
 import android.text.TextUtils;
 
 import java.io.File;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.Date;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import static com.google.android.apps.muzei.api.provider.ProviderContract.Artwork.ATTRIBUTION;
 import static com.google.android.apps.muzei.api.provider.ProviderContract.Artwork.BYLINE;
@@ -47,15 +50,23 @@ import static com.google.android.apps.muzei.api.provider.ProviderContract.Artwor
  * <p>
  * Artwork can then be added to a {@link MuzeiArtProvider} by calling
  * {@link MuzeiArtProvider#addArtwork(Artwork) addArtwork(Artwork)} directly
- * from within a MuzeiArtProvider or by calling
- * {@link ProviderContract.Artwork#addArtwork(Context, Class, Artwork)}
- * from anywhere in your application.
+ * from within a MuzeiArtProvider or by creating a {@link ProviderClient} and calling
+ * {@link ProviderClient#addArtwork(Artwork)} from anywhere in your application.
  * </p>
  * <p>
  * The static {@link Artwork#fromCursor(Cursor)} method allows you to convert
  * a row retrieved from a {@link MuzeiArtProvider} into Artwork instance.
  */
 public class Artwork {
+    private static DateFormat DATE_FORMAT;
+
+    private static DateFormat getDateFormat() {
+        if (DATE_FORMAT == null) {
+            DATE_FORMAT = SimpleDateFormat.getDateTimeInstance();
+        }
+        return DATE_FORMAT;
+    }
+
     private long id;
     private String token;
     private String title;
@@ -208,7 +219,7 @@ public class Artwork {
 
     /**
      * Returns the artwork's web URI.
-     * This is used by default in {@link MuzeiArtProvider#openArtworkInfo(Artwork)} to
+     * This is used by default in {@link MuzeiArtProvider#getArtworkInfo(Artwork)} to
      * allow the user to view more details about the artwork.
      *
      * @return the artwork's web URI, or null if it doesn't exist
@@ -220,11 +231,11 @@ public class Artwork {
 
     /**
      * Sets the artwork's web URI. This is used by default in
-     * {@link MuzeiArtProvider#openArtworkInfo(Artwork)} to allow the user to view more details
+     * {@link MuzeiArtProvider#getArtworkInfo(Artwork)} to allow the user to view more details
      * about the artwork.
      *
      * @param webUri a Uri to more details about the artwork.
-     * @see MuzeiArtProvider#openArtworkInfo(Artwork)
+     * @see MuzeiArtProvider#getArtworkInfo(Artwork)
      */
     public void setWebUri(@Nullable Uri webUri) {
         this.webUri = webUri;
@@ -323,6 +334,72 @@ public class Artwork {
 
     void setDateModified(@NonNull Date dateModified) {
         this.dateModified = dateModified;
+    }
+
+    @NonNull
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Artwork #");
+        sb.append(id);
+
+        if (token != null && !token.isEmpty() && (persistentUri == null ||
+                !persistentUri.toString().equals(token))) {
+            sb.append("+");
+            sb.append(token);
+        }
+        sb.append(" (");
+        sb.append(persistentUri);
+        if (persistentUri != null && !persistentUri.equals(webUri)) {
+            sb.append(", ");
+            sb.append(webUri);
+        }
+        sb.append(")");
+        sb.append(": ");
+        boolean appended = false;
+        if (title != null && !title.isEmpty()) {
+            sb.append(title);
+            appended = true;
+        }
+        if (byline != null && !byline.isEmpty()) {
+            if (appended) {
+                sb.append(" by ");
+            }
+            sb.append(byline);
+            appended = true;
+        }
+        if (attribution != null && !attribution.isEmpty()) {
+            if (appended) {
+                sb.append(", ");
+            }
+            sb.append(attribution);
+            appended = true;
+        }
+        if (metadata != null) {
+            if (appended) {
+                sb.append("; ");
+            }
+            sb.append("Metadata=");
+            sb.append(metadata);
+            appended = true;
+        }
+        if (dateAdded != null) {
+            if (appended) {
+                sb.append(", ");
+            }
+            sb.append("Added on ");
+            sb.append(getDateFormat().format(dateAdded));
+            appended = true;
+        }
+        if (dateModified != null && !dateModified.equals(dateAdded)) {
+            if (appended) {
+                sb.append(", ");
+            }
+            sb.append("Last modified on ");
+            sb.append(getDateFormat().format(dateModified));
+        }
+
+        return sb.toString();
     }
 
     /**
@@ -473,12 +550,12 @@ public class Artwork {
 
         /**
          * Sets the artwork's web URI. This is used by default in
-         * {@link MuzeiArtProvider#openArtworkInfo(Artwork)}
+         * {@link MuzeiArtProvider#getArtworkInfo(Artwork)}
          * to allow the user to view more details about the artwork.
          *
          * @param webUri a Uri to more details about the artwork.
          * @return this {@link Builder}.
-         * @see MuzeiArtProvider#openArtworkInfo(Artwork)
+         * @see MuzeiArtProvider#getArtworkInfo(Artwork)
          */
         @NonNull
         public Builder webUri(@Nullable Uri webUri) {

@@ -19,11 +19,6 @@ package com.google.android.apps.muzei
 import android.annotation.SuppressLint
 import android.app.WallpaperColors
 import android.app.WallpaperManager
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.Lifecycle
-import android.arch.lifecycle.LifecycleOwner
-import android.arch.lifecycle.LifecycleRegistry
-import android.arch.lifecycle.MutableLiveData
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -31,13 +26,22 @@ import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
-import android.support.annotation.RequiresApi
-import android.support.v4.os.UserManagerCompat
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.ViewConfiguration
-import com.google.android.apps.muzei.featuredart.FeaturedArtProvider
+import androidx.annotation.RequiresApi
+import androidx.core.os.UserManagerCompat
+import androidx.core.os.bundleOf
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.observe
+import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
 import com.google.android.apps.muzei.notifications.NotificationUpdater
 import com.google.android.apps.muzei.render.ImageLoader
 import com.google.android.apps.muzei.render.MuzeiBlurRenderer
@@ -45,19 +49,22 @@ import com.google.android.apps.muzei.render.RealRenderController
 import com.google.android.apps.muzei.render.RenderController
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.room.select
+import com.google.android.apps.muzei.room.openArtworkInfo
+import com.google.android.apps.muzei.settings.EffectsLockScreenOpenLiveData
+import com.google.android.apps.muzei.settings.Prefs
 import com.google.android.apps.muzei.shortcuts.ArtworkInfoShortcutController
 import com.google.android.apps.muzei.sources.SourceManager
 import com.google.android.apps.muzei.sync.ProviderManager
-import com.google.android.apps.muzei.util.observe
-import com.google.android.apps.muzei.util.observeNonNull
+import com.google.android.apps.muzei.util.filterNotNull
 import com.google.android.apps.muzei.wallpaper.LockscreenObserver
 import com.google.android.apps.muzei.wallpaper.WallpaperAnalytics
 import com.google.android.apps.muzei.wearable.WearableController
 import com.google.android.apps.muzei.widget.WidgetUpdater
-import kotlinx.coroutines.experimental.Job
-import kotlinx.coroutines.experimental.delay
-import kotlinx.coroutines.experimental.launch
+import com.google.firebase.analytics.FirebaseAnalytics
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import net.rbgrn.android.glwallpaperservice.GLWallpaperService
 
 data class WallpaperSize(val width: Int, val height: Int)
@@ -68,6 +75,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
 
     companion object {
         private const val TEMPORARY_FOCUS_DURATION_MILLIS: Long = 3000
+        private const val THREE_FINGER_TAP_INTERVAL_MS = 1000L
         private const val MAX_ARTWORK_SIZE = 110 // px
     }
 
@@ -81,6 +89,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
     @SuppressLint("InlinedApi")
     override fun onCreate() {
         super.onCreate()
+        wallpaperLifecycle.addObserver(WorkManagerInitializer.initializeObserver(this))
         wallpaperLifecycle.addObserver(SourceManager(this))
         wallpaperLifecycle.addObserver(NotificationUpdater(this))
         wallpaperLifecycle.addObserver(WearableController(this))
@@ -90,8 +99,8 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
         }
         ProviderManager.getInstance(this).observe(this) { provider ->
             if (provider == null) {
-                launch {
-                    FeaturedArtProvider::class.select(this@MuzeiWallpaperService)
+                GlobalScope.launch {
+                    ProviderManager.select(this@MuzeiWallpaperService, FEATURED_ART_AUTHORITY)
                 }
             }
         }
@@ -135,6 +144,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
         private var currentArtwork: Bitmap? = null
 
         private var validDoubleTap: Boolean = false
+        private var lastThreeFingerTap = 0L
 
         private val engineLifecycle = LifecycleRegistry(this)
 
@@ -156,7 +166,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
 
                 doubleTapTimeout?.cancel()
                 val timeout = ViewConfiguration.getDoubleTapTimeout().toLong()
-                doubleTapTimeout = launch {
+                doubleTapTimeout = lifecycleScope.launch {
                     delay(timeout)
                     queueEvent {
                         validDoubleTap = false
@@ -190,8 +200,9 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 MuzeiDatabase.getInstance(this@MuzeiWallpaperService)
                         .artworkDao().currentArtwork
-                        .observeNonNull(this) { artwork ->
-                            launch {
+                        .filterNotNull()
+                        .observe(this) { artwork ->
+                            lifecycleScope.launch {
                                 updateCurrentArtwork(artwork)
                             }
                         }
@@ -201,7 +212,10 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
             wallpaperLifecycle.addObserver(this)
             setTouchEventsEnabled(true)
             setOffsetNotificationsEnabled(true)
-            ArtDetailOpenLiveData.observeNonNull(this) { isArtDetailOpened ->
+            EffectsLockScreenOpenLiveData.observe(this) { isEffectsLockScreenOpen ->
+                renderController.onLockScreen = isEffectsLockScreenOpen
+            }
+            ArtDetailOpenLiveData.observe(this) { isArtDetailOpened ->
                 cancelDelayedBlur()
                 queueEvent { renderer.setIsBlurred(!isArtDetailOpened, true) }
             }
@@ -248,8 +262,6 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
                 lifecycle.removeObserver(this)
             }
             engineLifecycle.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-            doubleTapTimeout?.cancel()
-            cancelDelayedBlur()
             queueEvent {
                 renderer.destroy()
             }
@@ -261,8 +273,9 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
         }
 
         fun lockScreenVisibleChanged(isLockScreenVisible: Boolean) {
-            cancelDelayedBlur()
-            queueEvent { renderer.setIsBlurred(!isLockScreenVisible, false) }
+            if (EffectsLockScreenOpenLiveData.value != true) {
+                renderController.onLockScreen = isLockScreenVisible
+            }
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -292,16 +305,52 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
         ): Bundle? {
             // validDoubleTap previously set in the gesture listener
             if (WallpaperManager.COMMAND_TAP == action && validDoubleTap) {
-                // Temporarily toggle focused/blurred
-                queueEvent {
-                    renderer.setIsBlurred(!renderer.isBlurred, false)
-                    // Schedule a re-blur
-                    delayedBlur()
-                }
+                val prefs = Prefs.getSharedPreferences(this@MuzeiWallpaperService)
+                val doubleTapValue = prefs.getString(Prefs.PREF_DOUBLE_TAP,
+                        null) ?: Prefs.PREF_TAP_ACTION_TEMP
+                triggerTapAction(doubleTapValue, "gesture_double_tap")
                 // Reset the flag
                 validDoubleTap = false
             }
             return super.onCommand(action, x, y, z, extras, resultRequested)
+        }
+
+        private fun triggerTapAction(action: String, type: String) {
+            when (action) {
+                Prefs.PREF_TAP_ACTION_TEMP -> {
+                    FirebaseAnalytics.getInstance(this@MuzeiWallpaperService).logEvent(
+                            "temp_disable_effects", bundleOf(
+                            FirebaseAnalytics.Param.CONTENT_TYPE to type))
+                    // Temporarily toggle focused/blurred
+                    queueEvent {
+                        renderer.setIsBlurred(!renderer.isBlurred, false)
+                        // Schedule a re-blur
+                        delayedBlur()
+                    }
+                }
+                Prefs.PREF_TAP_ACTION_NEXT -> {
+                    GlobalScope.launch {
+                        FirebaseAnalytics.getInstance(this@MuzeiWallpaperService).logEvent(
+                                "next_artwork", bundleOf(
+                                FirebaseAnalytics.Param.CONTENT_TYPE to type))
+                        SourceManager.nextArtwork(this@MuzeiWallpaperService)
+                    }
+                }
+                Prefs.PREF_TAP_ACTION_VIEW_DETAILS -> {
+                    GlobalScope.launch {
+                        val artwork = MuzeiDatabase
+                                .getInstance(this@MuzeiWallpaperService)
+                                .artworkDao()
+                                .getCurrentArtwork()
+                        artwork?.run {
+                            FirebaseAnalytics.getInstance(this@MuzeiWallpaperService).logEvent(
+                                    "artwork_info_open", bundleOf(
+                                    FirebaseAnalytics.Param.CONTENT_TYPE to type))
+                            openArtworkInfo(this@MuzeiWallpaperService)
+                        }
+                    }
+                }
+            }
         }
 
         override fun onTouchEvent(event: MotionEvent) {
@@ -309,6 +358,18 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
             gestureDetector.onTouchEvent(event)
             // Delay blur from temporary refocus while touching the screen
             delayedBlur()
+            // See if there was a valid three finger tap
+            val now = SystemClock.elapsedRealtime()
+            val timeSinceLastThreeFingerTap = now - lastThreeFingerTap
+            if (event.pointerCount == 3
+                && timeSinceLastThreeFingerTap > THREE_FINGER_TAP_INTERVAL_MS) {
+                lastThreeFingerTap = now
+                val prefs = Prefs.getSharedPreferences(this@MuzeiWallpaperService)
+                val threeFingerTapValue = prefs.getString(Prefs.PREF_THREE_FINGER_TAP,
+                        null) ?: Prefs.PREF_TAP_ACTION_NONE
+
+                triggerTapAction(threeFingerTapValue, "gesture_three_finger")
+            }
         }
 
         private fun cancelDelayedBlur() {
@@ -321,7 +382,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
             }
 
             cancelDelayedBlur()
-            delayedBlur = launch {
+            delayedBlur = lifecycleScope.launch {
                 delay(TEMPORARY_FOCUS_DURATION_MILLIS)
                 queueEvent {
                     renderer.setIsBlurred(true, false)

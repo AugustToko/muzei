@@ -16,24 +16,29 @@
 
 package com.google.android.apps.muzei.complications
 
-import android.app.PendingIntent
 import android.content.Intent
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.preference.PreferenceManager
-import android.support.annotation.RequiresApi
 import android.support.wearable.complications.ComplicationData
 import android.support.wearable.complications.ComplicationManager
 import android.support.wearable.complications.ComplicationProviderService
 import android.support.wearable.complications.ComplicationText
 import android.util.Log
+import androidx.annotation.RequiresApi
+import androidx.core.app.TaskStackBuilder
 import androidx.core.content.edit
 import androidx.core.os.bundleOf
 import com.google.android.apps.muzei.FullScreenActivity
+import com.google.android.apps.muzei.ProviderChangedReceiver
+import com.google.android.apps.muzei.datalayer.ActivateMuzeiIntentService
+import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.sync.ProviderChangedWorker
+import com.google.android.apps.muzei.sync.ProviderManager
 import com.google.firebase.analytics.FirebaseAnalytics
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import net.nurik.roman.muzei.BuildConfig
 import java.util.TreeSet
 
@@ -62,11 +67,13 @@ class ArtworkComplicationProviderService : ComplicationProviderService() {
         FirebaseAnalytics.getInstance(this).logEvent("complication_artwork_activated", bundleOf(
                 FirebaseAnalytics.Param.CONTENT_TYPE to type.toString()))
         ProviderChangedWorker.addPersistentListener(this, "complication_artwork")
+        ProviderChangedReceiver.onVisibleChanged(this)
     }
 
     private fun addComplication(complicationId: Int) {
         val preferences = PreferenceManager.getDefaultSharedPreferences(this)
-        val complications = preferences.getStringSet(KEY_COMPLICATION_IDS, TreeSet())
+        val complications = preferences.getStringSet(KEY_COMPLICATION_IDS,
+                null) ?: TreeSet()
         complications.add(Integer.toString(complicationId))
         preferences.edit { putStringSet(KEY_COMPLICATION_IDS, complications) }
         if (BuildConfig.DEBUG) {
@@ -81,7 +88,8 @@ class ArtworkComplicationProviderService : ComplicationProviderService() {
         }
         FirebaseAnalytics.getInstance(this).logEvent("complication_artwork_deactivated", null)
         val preferences = PreferenceManager.getDefaultSharedPreferences(this)
-        val complications = preferences.getStringSet(KEY_COMPLICATION_IDS, TreeSet())
+        val complications = preferences.getStringSet(KEY_COMPLICATION_IDS,
+                null) ?: TreeSet()
         complications.remove(Integer.toString(complicationId))
         preferences.edit { putStringSet(KEY_COMPLICATION_IDS, complications) }
         if (BuildConfig.DEBUG) {
@@ -90,15 +98,21 @@ class ArtworkComplicationProviderService : ComplicationProviderService() {
         if (complications.isEmpty()) {
             ArtworkComplicationWorker.cancelComplicationUpdate()
             ProviderChangedWorker.removePersistentListener(this, "complication_artwork")
+            ProviderChangedReceiver.onVisibleChanged(this)
         }
     }
 
-    override fun onComplicationUpdate(complicationId: Int, type: Int, complicationManager: ComplicationManager) {
+    override fun onComplicationUpdate(
+            complicationId: Int,
+            type: Int,
+            complicationManager: ComplicationManager
+    ) {
         // Make sure that the complicationId is really in our set of added complications
         // This fixes corner cases like Muzei being uninstalled and reinstalled
         // (which wipes out our SharedPreferences but keeps any complications activated)
         val preferences = PreferenceManager.getDefaultSharedPreferences(this)
-        val complications = preferences.getStringSet(KEY_COMPLICATION_IDS, TreeSet())
+        val complications = preferences.getStringSet(KEY_COMPLICATION_IDS,
+                null) ?: TreeSet()
         if (!complications.contains(complicationId.toString())) {
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "Update missing id $complicationId")
@@ -106,10 +120,20 @@ class ArtworkComplicationProviderService : ComplicationProviderService() {
             addComplication(complicationId)
         }
         val applicationContext = applicationContext
-        launch {
-            val artwork = MuzeiDatabase.getInstance(this@ArtworkComplicationProviderService)
-                    .artworkDao()
-                    .getCurrentArtwork()
+        GlobalScope.launch {
+            val database = MuzeiDatabase.getInstance(applicationContext)
+            val provider = database.providerDao().getCurrentProvider()
+            if (provider == null) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Update no provider for $complicationId")
+                }
+                ProviderManager.select(applicationContext, FEATURED_ART_AUTHORITY)
+                ActivateMuzeiIntentService.checkForPhoneApp(applicationContext)
+                complicationManager.updateComplicationData(complicationId,
+                        ComplicationData.Builder(ComplicationData.TYPE_NO_DATA).build())
+                return@launch
+            }
+            val artwork = database.artworkDao().getCurrentArtwork()
             if (artwork == null) {
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "Update no artwork for $complicationId")
@@ -120,7 +144,9 @@ class ArtworkComplicationProviderService : ComplicationProviderService() {
             }
             val builder = ComplicationData.Builder(type).apply {
                 val intent = Intent(applicationContext, FullScreenActivity::class.java)
-                val tapAction = PendingIntent.getActivity(applicationContext, 0, intent, 0)
+                val taskStackBuilder = TaskStackBuilder.create(applicationContext)
+                        .addNextIntentWithParentStack(intent)
+                val tapAction = taskStackBuilder.getPendingIntent(0, 0)
                 when (type) {
                     ComplicationData.TYPE_LONG_TEXT -> {
                         val title = artwork.title

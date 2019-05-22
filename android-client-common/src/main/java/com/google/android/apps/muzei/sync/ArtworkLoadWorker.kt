@@ -17,20 +17,21 @@
 package com.google.android.apps.muzei.sync
 
 import android.content.ContentUris
+import android.content.Context
 import android.database.Cursor
 import android.net.Uri
-import android.os.RemoteException
 import android.provider.BaseColumns
 import android.util.Log
-import androidx.core.database.getLong
 import androidx.work.Constraints
+import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.Worker
+import androidx.work.WorkerParameters
+import com.google.android.apps.muzei.api.internal.ProtocolConstants
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_MAX_LOADED_ARTWORK_ID
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_RECENT_ARTWORK_IDS
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_GET_LOAD_INFO
@@ -43,8 +44,8 @@ import com.google.android.apps.muzei.render.isValidImage
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.util.ContentProviderClientCompat
-import kotlinx.coroutines.experimental.delay
-import kotlinx.coroutines.experimental.runBlocking
+import com.google.android.apps.muzei.util.getLong
+import kotlinx.coroutines.delay
 import net.nurik.roman.muzei.androidclientcommon.BuildConfig
 import java.io.IOException
 import java.util.Random
@@ -54,25 +55,27 @@ import java.util.concurrent.TimeUnit
  * Worker responsible for loading artwork from a [MuzeiArtProvider] and inserting it into
  * the [MuzeiDatabase].
  */
-class ArtworkLoadWorker : Worker() {
+class ArtworkLoadWorker(
+        context: Context,
+        workerParams: WorkerParameters
+) : CoroutineWorker(context, workerParams) {
 
     companion object {
         private const val TAG = "ArtworkLoad"
         private const val PERIODIC_TAG = "ArtworkLoadPeriodic"
-        private const val ARTWORK_LOAD_THROTTLE = 250 // quarter second
+        private const val ARTWORK_LOAD_THROTTLE = 250L // quarter second
 
         internal fun enqueueNext() {
-            val workManager = WorkManager.getInstance() ?: return
-            workManager.beginUniqueWork(TAG, ExistingWorkPolicy.REPLACE,
+            val workManager = WorkManager.getInstance()
+            workManager.enqueueUniqueWork(TAG, ExistingWorkPolicy.REPLACE,
                     OneTimeWorkRequestBuilder<ArtworkLoadWorker>().build())
-                    .enqueue()
         }
 
         internal fun enqueuePeriodic(
                 loadFrequencySeconds: Long,
                 loadOnWifi: Boolean
         ) {
-            val workManager = WorkManager.getInstance() ?: return
+            val workManager = WorkManager.getInstance()
             workManager.enqueueUniquePeriodicWork(PERIODIC_TAG, ExistingPeriodicWorkPolicy.REPLACE,
                     PeriodicWorkRequestBuilder<ArtworkLoadWorker>(
                             loadFrequencySeconds, TimeUnit.SECONDS,
@@ -88,29 +91,28 @@ class ArtworkLoadWorker : Worker() {
         }
 
         fun cancelPeriodic() {
-            val workManager = WorkManager.getInstance() ?: return
+            val workManager = WorkManager.getInstance()
             workManager.cancelUniqueWork(PERIODIC_TAG)
         }
     }
 
-    override fun doWork() = runBlocking(syncSingleThreadContext) {
+    override val coroutineContext = syncSingleThreadContext
+
+    override suspend fun doWork(): Result {
         // Throttle artwork loads
         delay(ARTWORK_LOAD_THROTTLE)
-        loadArtwork()
-    }
-
-    private suspend fun loadArtwork(): Result {
+        // Now actually load the artwork
         val database = MuzeiDatabase.getInstance(applicationContext)
-        val (componentName) = database.providerDao()
-                .getCurrentProvider() ?: return Result.FAILURE
+        val (authority) = database.providerDao()
+                .getCurrentProvider() ?: return Result.failure()
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Artwork Load for $componentName")
+            Log.d(TAG, "Artwork Load for $authority")
         }
-        val contentUri = ProviderContract.Artwork.getContentUri(applicationContext, componentName)
+        val contentUri = ProviderContract.getContentUri(authority)
         try {
             ContentProviderClientCompat.getClient(applicationContext, contentUri)?.use { client ->
                 val result = client.call(METHOD_GET_LOAD_INFO)
-                        ?: return Result.FAILURE
+                        ?: return Result.failure()
                 val maxLoadedArtworkId = result.getLong(KEY_MAX_LOADED_ARTWORK_ID, 0L)
                 val recentArtworkIds = RecentArtworkIdsConverter.fromString(
                         result.getString(KEY_RECENT_ARTWORK_IDS, ""))
@@ -125,7 +127,7 @@ class ArtworkLoadWorker : Worker() {
                         while (newArtwork.moveToNext()) {
                             val validArtwork = checkForValidArtwork(client, contentUri, newArtwork)
                             if (validArtwork != null) {
-                                validArtwork.providerComponentName = componentName
+                                validArtwork.providerAuthority = authority
                                 val artworkId = database.artworkDao().insert(validArtwork)
                                 if (BuildConfig.DEBUG) {
                                     Log.d(TAG, "Loaded ${validArtwork.imageUri} into id $artworkId")
@@ -135,22 +137,22 @@ class ArtworkLoadWorker : Worker() {
                                 // in preparation for the next load
                                 if (!newArtwork.moveToNext()) {
                                     if (BuildConfig.DEBUG) {
-                                        Log.d(TAG, "Out of new artwork, requesting load from $componentName")
+                                        Log.d(TAG, "Out of new artwork, requesting load from $authority")
                                     }
                                     client.call(METHOD_REQUEST_LOAD)
                                 }
-                                return Result.SUCCESS
+                                return Result.success()
                             }
                         }
                         if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "Could not find any new artwork, requesting load from $componentName")
+                            Log.d(TAG, "Could not find any new artwork, requesting load from $authority")
                         }
                         // No new artwork, request that they load another in preparation for the next load
                         client.call(METHOD_REQUEST_LOAD)
                         // Is there any artwork at all?
                         if (allArtwork.count == 0) {
-                            Log.w(TAG, "Unable to find any artwork for $componentName")
-                            return Result.FAILURE
+                            Log.w(TAG, "Unable to find any artwork for $authority")
+                            return Result.failure()
                         }
                         // Okay so there's at least some artwork.
                         // Is it just the one artwork we're already showing?
@@ -160,9 +162,9 @@ class ArtworkLoadWorker : Worker() {
                             val currentArtwork = database.artworkDao().getCurrentArtwork()
                             if (artworkUri == currentArtwork?.imageUri) {
                                 if (BuildConfig.DEBUG) {
-                                    Log.i(TAG, "Provider $componentName only has one artwork")
+                                    Log.i(TAG, "Provider $authority only has one artwork")
                                 }
-                                return Result.FAILURE
+                                return Result.failure()
                             }
                         }
                         // At this point, we know there must be some artwork that isn't the current
@@ -191,30 +193,28 @@ class ArtworkLoadWorker : Worker() {
                                     continue
                                 }
                                 checkForValidArtwork(client, contentUri, allArtwork)?.apply {
-                                    providerComponentName = componentName
+                                    providerAuthority = authority
                                     artworkId = database.artworkDao().insert(this)
                                     if (BuildConfig.DEBUG) {
                                         Log.d(TAG, "Loaded $imageUri into id $artworkId")
                                     }
                                     client.call(METHOD_MARK_ARTWORK_LOADED, imageUri.toString())
-                                    return Result.SUCCESS
+                                    return Result.success()
                                 }
                             }
                         }
                         if (BuildConfig.DEBUG) {
-                            Log.i(TAG, "Unable to find any other valid artwork for $componentName")
+                            Log.i(TAG, "Unable to find any other valid artwork for $authority")
                         }
                     }
                 }
             }
-            return Result.FAILURE
-        } catch (e: RemoteException) {
-            Log.i(TAG, "Provider $componentName crashed while retrieving artwork", e)
-            return Result.FAILURE
+        } catch (e: Exception) {
+            Log.i(TAG, "Provider $authority crashed while retrieving artwork: ${e.message}")
         }
+        return Result.retry()
     }
 
-    @Throws(RemoteException::class)
     private suspend fun checkForValidArtwork(
             client: ContentProviderClientCompat,
             contentUri: Uri,
@@ -230,10 +230,19 @@ class ArtworkLoadWorker : Worker() {
                         byline = providerArtwork.byline
                         attribution = providerArtwork.attribution
                     }
+                } else {
+                    if (BuildConfig.DEBUG) {
+                        Log.w(TAG, "Artwork $artworkUri is not a valid image")
+                    }
+                    // Tell the client that the artwork is invalid
+                    client.call(ProtocolConstants.METHOD_MARK_ARTWORK_INVALID, artworkUri.toString())
                 }
             }
         } catch (e: IOException) {
-            Log.w(TAG, "Unable to preload artwork $artworkUri", e)
+            Log.i(TAG, "Unable to preload artwork $artworkUri: ${e.message}")
+        } catch (e: Exception) {
+            Log.i(TAG, "Provider ${contentUri.authority} crashed preloading artwork " +
+                    "$artworkUri: ${e.message}")
         }
 
         return null

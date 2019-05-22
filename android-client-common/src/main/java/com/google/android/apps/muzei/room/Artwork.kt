@@ -16,18 +16,16 @@
 
 package com.google.android.apps.muzei.room
 
-import android.arch.persistence.room.ColumnInfo
-import android.arch.persistence.room.Entity
-import android.arch.persistence.room.Index
-import android.arch.persistence.room.PrimaryKey
-import android.arch.persistence.room.TypeConverters
-import android.content.ComponentName
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.net.Uri
 import android.provider.BaseColumns
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
 import com.google.android.apps.muzei.api.MuzeiContract
-import com.google.android.apps.muzei.room.converter.ComponentNameTypeConverter
 import com.google.android.apps.muzei.room.converter.DateTypeConverter
 import com.google.android.apps.muzei.room.converter.UriTypeConverter
 import java.util.Date
@@ -35,7 +33,7 @@ import java.util.Date
 /**
  * Artwork's representation in Room
  */
-@Entity(indices = [(Index(value = ["providerComponentName"]))])
+@Entity(indices = [(Index(value = ["providerAuthority"]))])
 class Artwork(
         @field:TypeConverters(UriTypeConverter::class)
         val imageUri: Uri
@@ -44,8 +42,7 @@ class Artwork(
     @ColumnInfo(name = BaseColumns._ID)
     var id: Long = 0
 
-    @TypeConverters(ComponentNameTypeConverter::class)
-    lateinit var providerComponentName: ComponentName
+    lateinit var providerAuthority: String
 
     var title: String? = null
 

@@ -16,8 +16,6 @@
 
 package com.google.android.apps.muzei.sources
 
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.LifecycleOwner
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -25,9 +23,11 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.ACTION_NETWORK_AVAILABLE
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import kotlinx.coroutines.experimental.launch
+import com.google.android.apps.muzei.util.goAsync
 
 /**
  * LifecycleObserver responsible for monitoring network connectivity and retrying artwork as necessary
@@ -46,8 +46,7 @@ class NetworkChangeObserver internal constructor(private val context: Context) :
                 return
             }
 
-            val pendingResult = goAsync()
-            launch {
+            goAsync {
                 val sources = MuzeiDatabase.getInstance(context).sourceDao()
                         .getCurrentSourcesThatWantNetwork()
                 for (source in sources) {
@@ -64,7 +63,6 @@ class NetworkChangeObserver internal constructor(private val context: Context) :
                         Log.i(TAG, "Sending network available to $sourceName failed.", e)
                     }
                 }
-                pendingResult.finish()
             }
         }
     }

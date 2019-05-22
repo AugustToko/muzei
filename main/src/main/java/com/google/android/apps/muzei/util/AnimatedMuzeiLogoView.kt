@@ -89,7 +89,7 @@ class AnimatedMuzeiLogoView @JvmOverloads constructor(context: Context, attrs: A
         // instead. Ideally this should be toggled using a heuristic based on the number
         // and or dimensions of paths to render.
         // Note that PathDashPathEffects can lead to clipping issues with hardware rendering.
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
 
     fun start() {
@@ -215,7 +215,7 @@ class AnimatedMuzeiLogoView @JvmOverloads constructor(context: Context, attrs: A
         postInvalidateOnAnimation()
     }
 
-    internal class SavedState : View.BaseSavedState {
+    internal class SavedState : BaseSavedState {
 
         companion object {
             @Suppress("unused")
@@ -234,7 +234,7 @@ class AnimatedMuzeiLogoView @JvmOverloads constructor(context: Context, attrs: A
         var state: Int = 0
         var startTime: Long = 0
 
-        constructor(superState: Parcelable) : super(superState)
+        constructor(superState: Parcelable?) : super(superState)
 
         private constructor(source: Parcel) : super(source) {
             state = source.readInt()

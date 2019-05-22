@@ -19,10 +19,10 @@ apply plugin: 'kotlin-android'
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion"
-    implementation "androidx.core:core-ktx:$rootProject.ext.ktxVersion"
-    implementation "android.arch.work:work-runtime-ktx:$workManagerVersion"
-    implementation "com.squareup.retrofit2:retrofit:2.3.0"
-    implementation "com.squareup.retrofit2:converter-moshi:2.3.0"
+    implementation "androidx.core:core-ktx:$coreVersion"
+    implementation "androidx.work:work-runtime-ktx:$workManagerVersion"
+    implementation "com.squareup.retrofit2:retrofit:2.5.0"
+    implementation "com.squareup.retrofit2:converter-moshi:2.5.0"
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
     //implementation "com.google.android.apps.muzei:muzei-api:+"
     implementation project(':muzei-api')
@@ -34,5 +34,9 @@ android {
     defaultConfig {
         minSdkVersion 19
         targetSdkVersion rootProject.ext.targetSdkVersion
+
+        def unsplashAuthorityValue = "com.example.muzei.exampleunsplash"
+        manifestPlaceholders = [unsplashAuthority: unsplashAuthorityValue]
+        buildConfigField "String", "UNSPLASH_AUTHORITY", "\"${unsplashAuthorityValue}\""
     }
 }

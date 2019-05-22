@@ -23,10 +23,11 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
-import android.support.media.ExifInterface
 import android.util.Log
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.withContext
+import androidx.exifinterface.media.ExifInterface
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import net.nurik.roman.muzei.androidclientcommon.BuildConfig
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
@@ -57,7 +58,7 @@ sealed class ImageLoader {
                 uri: Uri,
                 targetWidth: Int = 0,
                 targetHeight: Int = targetWidth
-        ) = withContext(CommonPool) {
+        ) = withContext(Dispatchers.Default) {
             ContentUriImageLoader(contentResolver, uri)
                     .decode(targetWidth, targetHeight)
         }
@@ -77,7 +78,9 @@ sealed class ImageLoader {
             val height = if (rotation == 90 || rotation == 270) originalWidth else originalHeight
             return width to height
         } catch (e: Exception) {
-            Log.w(TAG, "Error decoding ${toString()}", e)
+            if (BuildConfig.DEBUG) {
+                Log.w(TAG, "Error decoding ${toString()}: ${e.message}")
+            }
             0 to 0
         }
     }
@@ -126,17 +129,18 @@ sealed class ImageLoader {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error decoding ${toString()}", e)
+            if (BuildConfig.DEBUG) {
+                Log.w(TAG, "Error decoding ${toString()}: ${e.message}")
+            }
             null
         }
     }
 
-    private fun getRotation(): Int = try {
+    fun getRotation(): Int = try {
         openInputStream()?.use { input ->
             val exifInterface = ExifInterface(input)
-            val orientation = exifInterface.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            when (orientation) {
+            when (exifInterface.getAttributeInt(ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL)) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> 90
                 ExifInterface.ORIENTATION_ROTATE_180 -> 180
                 ExifInterface.ORIENTATION_ROTATE_270 -> 270

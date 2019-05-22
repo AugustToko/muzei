@@ -16,23 +16,24 @@
 
 package com.google.android.apps.muzei.sync
 
-import android.arch.lifecycle.Observer
 import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
-import android.os.RemoteException
 import android.preference.PreferenceManager
-import android.support.annotation.RequiresApi
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.lifecycle.Observer
 import androidx.work.Constraints
-import androidx.work.Data
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.Worker
+import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.google.android.apps.muzei.api.internal.ProtocolConstants
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.KEY_LAST_LOADED_TIME
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.METHOD_GET_LOAD_INFO
@@ -42,7 +43,6 @@ import com.google.android.apps.muzei.render.isValidImage
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.room.Provider
 import com.google.android.apps.muzei.util.ContentProviderClientCompat
-import kotlinx.coroutines.experimental.runBlocking
 import net.nurik.roman.muzei.androidclientcommon.BuildConfig
 import java.io.IOException
 import java.util.HashSet
@@ -53,37 +53,41 @@ import java.util.concurrent.TimeUnit
  * kicking off an immediate load if the current artwork is invalid or we're overdue for loading
  * artwork.
  */
-class ProviderChangedWorker : Worker() {
+class ProviderChangedWorker(
+        context: Context,
+        workerParams: WorkerParameters
+) : CoroutineWorker(context, workerParams) {
 
     companion object {
         private const val TAG = "ProviderChanged"
         private const val PERSISTENT_CHANGED_TAG = "persistent_changed"
         private const val EXTRA_CONTENT_URI = "content_uri"
         private const val PREF_PERSISTENT_LISTENERS = "persistentListeners"
+        private const val PROVIDER_CHANGED_THROTTLE = 250L // quarter second
 
         internal fun enqueueSelected() {
-            val workManager = WorkManager.getInstance() ?: return
+            val workManager = WorkManager.getInstance()
+            // Cancel changed work for the old provider
+            workManager.cancelUniqueWork("changed")
             workManager.enqueue(OneTimeWorkRequestBuilder<ProviderChangedWorker>()
-                    .setInputData(Data.Builder()
-                            .putString(TAG, "selected")
-                            .build())
+                    .setInputData(workDataOf(TAG to "selected"))
                     .build())
         }
 
         internal fun enqueueChanged() {
-            val workManager = WorkManager.getInstance() ?: return
-            workManager.enqueue(OneTimeWorkRequestBuilder<ProviderChangedWorker>()
-                    .setInputData(Data.Builder()
-                            .putString(TAG, "changed")
+            val workManager = WorkManager.getInstance()
+            workManager.enqueueUniqueWork("changed", ExistingWorkPolicy.REPLACE,
+                    OneTimeWorkRequestBuilder<ProviderChangedWorker>()
+                            .setInitialDelay(PROVIDER_CHANGED_THROTTLE, TimeUnit.MILLISECONDS)
+                            .setInputData(workDataOf(TAG to "changed"))
                             .build())
-                    .build())
         }
 
         @RequiresApi(Build.VERSION_CODES.N)
         fun addPersistentListener(context: Context, name: String) {
             val preferences = PreferenceManager.getDefaultSharedPreferences(context)
             val persistentListeners = preferences.getStringSet(PREF_PERSISTENT_LISTENERS,
-                    HashSet())
+                    null) ?: HashSet()
             persistentListeners.add(name)
             preferences.edit {
                 putStringSet(PREF_PERSISTENT_LISTENERS, persistentListeners)
@@ -91,11 +95,18 @@ class ProviderChangedWorker : Worker() {
             startListening(context)
         }
 
+        fun hasPersistentListeners(context: Context): Boolean {
+            val preferences = PreferenceManager.getDefaultSharedPreferences(context)
+            val persistentListeners = preferences.getStringSet(PREF_PERSISTENT_LISTENERS,
+                    null) ?: HashSet()
+            return persistentListeners.isNotEmpty()
+        }
+
         @RequiresApi(Build.VERSION_CODES.N)
         fun removePersistentListener(context: Context, name: String) {
             val preferences = PreferenceManager.getDefaultSharedPreferences(context)
             val persistentListeners = preferences.getStringSet(PREF_PERSISTENT_LISTENERS,
-                    HashSet())
+                    null) ?: HashSet()
             persistentListeners.remove(name)
             preferences.edit {
                 putStringSet(PREF_PERSISTENT_LISTENERS, persistentListeners)
@@ -110,7 +121,7 @@ class ProviderChangedWorker : Worker() {
             val preferences = PreferenceManager.getDefaultSharedPreferences(context)
             val persistentListeners = preferences.getStringSet(PREF_PERSISTENT_LISTENERS,
                     HashSet()) ?: HashSet()
-            if (!persistentListeners.isEmpty()) {
+            if (persistentListeners.isNotEmpty()) {
                 if (listening) {
                     cancelObserver()
                 } else {
@@ -135,8 +146,8 @@ class ProviderChangedWorker : Worker() {
                                 providerLiveData.removeObserver(this)
                                 // Make sure we're still not actively listening
                                 if (!providerManager.hasActiveObservers()) {
-                                    val contentUri = ProviderContract.Artwork.getContentUri(
-                                            context, provider.componentName)
+                                    val contentUri = ProviderContract.getContentUri(
+                                            provider.authority)
                                     scheduleObserver(contentUri)
                                 }
                             }
@@ -146,13 +157,12 @@ class ProviderChangedWorker : Worker() {
 
         @RequiresApi(Build.VERSION_CODES.N)
         private fun scheduleObserver(contentUri: Uri) {
-            val workManager = WorkManager.getInstance() ?: return
+            val workManager = WorkManager.getInstance()
             workManager.enqueue(OneTimeWorkRequestBuilder<ProviderChangedWorker>()
                     .addTag(PERSISTENT_CHANGED_TAG)
-                    .setInputData(Data.Builder()
-                            .putString(TAG, PERSISTENT_CHANGED_TAG)
-                            .putString(EXTRA_CONTENT_URI, contentUri.toString())
-                            .build())
+                    .setInputData(workDataOf(
+                            TAG to PERSISTENT_CHANGED_TAG,
+                            EXTRA_CONTENT_URI to contentUri.toString()))
                     .setConstraints(Constraints.Builder()
                             .addContentUriTrigger(contentUri, true)
                             .build())
@@ -160,59 +170,60 @@ class ProviderChangedWorker : Worker() {
         }
 
         private fun cancelObserver() {
-            val workManager = WorkManager.getInstance() ?: return
+            val workManager = WorkManager.getInstance()
             workManager.cancelAllWorkByTag(PERSISTENT_CHANGED_TAG)
         }
     }
 
-    override fun doWork() = runBlocking(syncSingleThreadContext) {
-        val tag = inputData.getString(TAG, "") ?: ""
+    override val coroutineContext = syncSingleThreadContext
+
+    override suspend fun doWork(): Result {
+        val tag = inputData.getString(TAG) ?: ""
         // First schedule the observer to pick up any changes fired
         // by the work done in handleProviderChange
         if (tag == PERSISTENT_CHANGED_TAG &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            inputData.getString(EXTRA_CONTENT_URI, "")?.toUri()?.run {
+            inputData.getString(EXTRA_CONTENT_URI)?.toUri()?.run {
                 scheduleObserver(this)
             }
         }
         // Now actually handle the provider change
-        handleProviderChange(tag)
-    }
-
-    private suspend fun handleProviderChange(tag: String): Result {
         val database = MuzeiDatabase.getInstance(applicationContext)
         val provider = database.providerDao()
-                .getCurrentProvider() ?: return Result.FAILURE
+                .getCurrentProvider() ?: return Result.failure()
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Provider Change ($tag) for ${provider.componentName}")
+            Log.d(TAG, "Provider Change ($tag) for ${provider.authority}")
         }
-        val contentUri = ProviderContract.Artwork.getContentUri(applicationContext, provider.componentName)
+        val contentUri = ProviderContract.getContentUri(provider.authority)
         try {
             ContentProviderClientCompat.getClient(applicationContext, contentUri)?.use { client ->
                 val result = client.call(METHOD_GET_LOAD_INFO)
-                        ?: return Result.RETRY
+                        ?: return Result.retry()
                 val lastLoadedTime = result.getLong(KEY_LAST_LOADED_TIME, 0L)
                 client.query(contentUri)?.use { allArtwork ->
                     val providerManager = ProviderManager.getInstance(applicationContext)
                     val loadFrequencySeconds = providerManager.loadFrequencySeconds
-                    val shouldSchedule = loadFrequencySeconds > 0
-                    val overDue = shouldSchedule &&
-                            System.currentTimeMillis() - lastLoadedTime >= TimeUnit.SECONDS.toMillis(loadFrequencySeconds)
-                    val enqueueNext = overDue || !isCurrentArtworkValid(client, provider)
-                    if (enqueueNext) {
-                        // Schedule an immediate load
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "Scheduling an immediate load")
+                    var enqueued = false
+                    if (tag == "changed" || tag == PERSISTENT_CHANGED_TAG) {
+                        val overDue = loadFrequencySeconds > 0 &&
+                                System.currentTimeMillis() - lastLoadedTime >= TimeUnit.SECONDS.toMillis(loadFrequencySeconds)
+                        val enqueueNext = overDue || !isCurrentArtworkValid(client, provider)
+                        if (enqueueNext) {
+                            // Schedule an immediate load
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "Scheduling an immediate load")
+                            }
+                            ArtworkLoadWorker.enqueueNext()
+                            enqueued = true
                         }
-                        ArtworkLoadWorker.enqueueNext()
-                    }
-                    if (shouldSchedule) {
+                    } else if (loadFrequencySeconds > 0) {
                         // Schedule the periodic work
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "Scheduling periodic load")
+                        }
                         ArtworkLoadWorker.enqueuePeriodic(loadFrequencySeconds,
                                 providerManager.loadOnWifi)
-                    } else {
-                        // Clear any existing recurring work as it isn't needed anymore
-                        ArtworkLoadWorker.cancelPeriodic()
+                        enqueued = true
                     }
                     // Update whether the provider supports the 'Next Artwork' button
                     var validArtworkCount = 0
@@ -229,21 +240,21 @@ class ProviderChangedWorker : Worker() {
                         Log.d(TAG, "Found at least $validArtworkCount artwork for $provider")
                     }
                     database.providerDao().update(provider)
-                    if (validArtworkCount <= 1 && !enqueueNext) {
+                    if (validArtworkCount <= 1 && !enqueued) {
                         if (BuildConfig.DEBUG) {
                             Log.d(TAG, "Requesting a load from $provider")
                         }
                         // Request a load if we don't have any more artwork
-                        // and haven't just called enqueueNext
+                        // and haven't just called enqueueNext / enqueuePeriodic
                         client.call(ProtocolConstants.METHOD_REQUEST_LOAD)
                     }
-                    return Result.SUCCESS
+                    return Result.success()
                 }
             }
-        } catch (e: RemoteException) {
-            Log.i(TAG, "Provider ${provider.componentName} crashed while retrieving artwork", e)
+        } catch (e: Exception) {
+            Log.i(TAG, "Provider ${provider.authority} crashed while retrieving artwork: ${e.message}")
         }
-        return Result.RETRY
+        return Result.retry()
     }
 
     private suspend fun isCurrentArtworkValid(
@@ -251,16 +262,15 @@ class ProviderChangedWorker : Worker() {
             provider: Provider
     ): Boolean {
         MuzeiDatabase.getInstance(applicationContext).artworkDao()
-                .getCurrentArtworkForProvider(provider.componentName)?.let { artwork ->
+                .getCurrentArtworkForProvider(provider.authority)?.let { artwork ->
                     client.query(artwork.imageUri)?.use { cursor ->
-                        val contentUri = ProviderContract.Artwork.getContentUri(applicationContext, provider.componentName)
+                        val contentUri = ProviderContract.getContentUri(provider.authority)
                         return cursor.moveToNext() && isValidArtwork(client, contentUri, cursor)
                     }
                 }
         return false
     }
 
-    @Throws(RemoteException::class)
     private suspend fun isValidArtwork(
             client: ContentProviderClientCompat,
             contentUri: Uri,
@@ -270,10 +280,21 @@ class ProviderChangedWorker : Worker() {
         val artworkUri = ContentUris.withAppendedId(contentUri, providerArtwork.id)
         try {
             client.openInputStream(artworkUri)?.use { inputStream ->
-                return inputStream.isValidImage()
+                if (inputStream.isValidImage()) {
+                    return true
+                } else {
+                    if (BuildConfig.DEBUG) {
+                        Log.w(TAG, "Artwork $artworkUri is not a valid image")
+                    }
+                    // Tell the client that the artwork is invalid
+                    client.call(ProtocolConstants.METHOD_MARK_ARTWORK_INVALID, artworkUri.toString())
+                }
             }
         } catch (e: IOException) {
-            Log.w(TAG, "Unable to preload artwork $artworkUri", e)
+            Log.i(TAG, "Unable to preload artwork $artworkUri: ${e.message}")
+        } catch (e: Exception) {
+            Log.i(TAG, "Provider ${contentUri.authority} crashed preloading artwork " +
+                    "$artworkUri: ${e.message}")
         }
 
         return false

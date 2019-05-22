@@ -16,19 +16,21 @@
 
 package com.google.android.apps.muzei.render
 
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.LifecycleOwner
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Handler
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.google.android.apps.muzei.settings.Prefs
-import kotlinx.coroutines.experimental.android.UI
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 abstract class RenderController(
         protected var context: Context,
         protected var renderer: MuzeiBlurRenderer,
-        protected var callbacks: Callbacks
+        private var callbacks: Callbacks
 ) : DefaultLifecycleObserver {
 
     var visible: Boolean = false
@@ -45,21 +47,52 @@ abstract class RenderController(
                 callbacks.requestRender()
             }
         }
+    var onLockScreen: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                renderer.recomputeMaxPrescaledBlurPixels(
+                        if (value) Prefs.PREF_LOCK_BLUR_AMOUNT else Prefs.PREF_BLUR_AMOUNT)
+                renderer.recomputeMaxDimAmount(
+                        if (value) Prefs.PREF_LOCK_DIM_AMOUNT else Prefs.PREF_DIM_AMOUNT)
+                renderer.recomputeGreyAmount(
+                        if (value) Prefs.PREF_LOCK_GREY_AMOUNT else Prefs.PREF_GREY_AMOUNT)
+                reloadCurrentArtwork()
+            }
+        }
+    private lateinit var coroutineScope: CoroutineScope
     private var destroyed = false
     private var queuedImageLoader: ImageLoader? = null
     private val sharedPreferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        when (key) {
-            Prefs.PREF_BLUR_AMOUNT -> {
-                renderer.recomputeMaxPrescaledBlurPixels()
-                throttledForceReloadCurrentArtwork()
+        if (onLockScreen) {
+            when (key) {
+                Prefs.PREF_LOCK_BLUR_AMOUNT -> {
+                    renderer.recomputeMaxPrescaledBlurPixels()
+                    throttledForceReloadCurrentArtwork()
+                }
+                Prefs.PREF_LOCK_DIM_AMOUNT -> {
+                    renderer.recomputeMaxDimAmount()
+                    throttledForceReloadCurrentArtwork()
+                }
+                Prefs.PREF_LOCK_GREY_AMOUNT -> {
+                    renderer.recomputeGreyAmount()
+                    throttledForceReloadCurrentArtwork()
+                }
             }
-            Prefs.PREF_DIM_AMOUNT -> {
-                renderer.recomputeMaxDimAmount()
-                throttledForceReloadCurrentArtwork()
-            }
-            Prefs.PREF_GREY_AMOUNT -> {
-                renderer.recomputeGreyAmount()
-                throttledForceReloadCurrentArtwork()
+        } else {
+            when (key) {
+                Prefs.PREF_BLUR_AMOUNT -> {
+                    renderer.recomputeMaxPrescaledBlurPixels()
+                    throttledForceReloadCurrentArtwork()
+                }
+                Prefs.PREF_DIM_AMOUNT -> {
+                    renderer.recomputeMaxDimAmount()
+                    throttledForceReloadCurrentArtwork()
+                }
+                Prefs.PREF_GREY_AMOUNT -> {
+                    renderer.recomputeGreyAmount()
+                    throttledForceReloadCurrentArtwork()
+                }
             }
         }
     }
@@ -72,6 +105,7 @@ abstract class RenderController(
     }
 
     override fun onCreate(owner: LifecycleOwner) {
+        coroutineScope = owner.lifecycleScope
         Prefs.getSharedPreferences(context)
                 .registerOnSharedPreferenceChangeListener(sharedPreferenceChangeListener)
     }
@@ -95,7 +129,7 @@ abstract class RenderController(
             // Don't reload artwork for destroyed RenderControllers
             return
         }
-        launch(UI) {
+        coroutineScope.launch(Dispatchers.Main) {
             val imageLoader = openDownloadedCurrentArtwork()
 
             callbacks.queueEventOnGlThread {

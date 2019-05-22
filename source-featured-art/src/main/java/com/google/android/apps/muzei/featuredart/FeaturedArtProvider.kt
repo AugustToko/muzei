@@ -20,13 +20,13 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.provider.BaseColumns
-import android.support.customtabs.CustomTabsIntent
-import android.support.v4.content.ContextCompat
 import android.util.Log
-import androidx.core.database.getString
+import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.content.ContextCompat
 import com.google.android.apps.muzei.api.UserCommand
 import com.google.android.apps.muzei.api.provider.Artwork
 import com.google.android.apps.muzei.api.provider.MuzeiArtProvider
+import com.google.android.apps.muzei.util.getString
 
 class FeaturedArtProvider : MuzeiArtProvider() {
 

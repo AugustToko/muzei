@@ -18,6 +18,11 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/action_link_effects"
+        android:icon="@drawable/ic_action_link_effects"
+        android:title="@string/action_link_effects"
+        app:showAsAction="ifRoom"/>
+    <item
         android:id="@+id/action_reset_defaults"
         android:title="@string/reset_advanced_settings_defaults"
         app:showAsAction="never"/>

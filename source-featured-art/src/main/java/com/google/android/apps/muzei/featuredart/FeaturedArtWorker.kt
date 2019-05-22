@@ -23,13 +23,16 @@ import android.util.Log
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.work.Constraints
+import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.Worker
+import androidx.work.WorkerParameters
 import com.google.android.apps.muzei.api.provider.Artwork
 import com.google.android.apps.muzei.api.provider.ProviderContract
+import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
+import kotlinx.coroutines.asCoroutineDispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONException
@@ -42,15 +45,19 @@ import java.util.Date
 import java.util.Locale
 import java.util.Random
 import java.util.TimeZone
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-class FeaturedArtWorker : Worker() {
+class FeaturedArtWorker(
+        context: Context,
+        workerParams: WorkerParameters
+) : CoroutineWorker(context, workerParams) {
 
     companion object {
         private const val TAG = "FeaturedArtWorker"
         private const val PREF_NEXT_UPDATE_MILLIS = "next_update_millis"
 
-        private const val QUERY_URL = "http://muzeiapi.appspot.com/featured?cachebust=1"
+        private const val QUERY_URL = "https://muzeiapi.appspot.com/featured?cachebust=1"
 
         private const val KEY_IMAGE_URI = "imageUri"
         private const val KEY_TITLE = "title"
@@ -65,6 +72,12 @@ class FeaturedArtWorker : Worker() {
         private val DATE_FORMAT_TZ = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US)
         private val DATE_FORMAT_LOCAL = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
 
+        private val SINGLE_THREAD_CONTEXT by lazy {
+            Executors.newSingleThreadExecutor { target ->
+                Thread(target, "FeaturedArt")
+            }.asCoroutineDispatcher()
+        }
+
         init {
             DATE_FORMAT_TZ.timeZone = TimeZone.getTimeZone("UTC")
         }
@@ -75,31 +88,32 @@ class FeaturedArtWorker : Worker() {
             val delay = if (nextUpdateMillis == 0L) {
                 0
             } else {
-                nextUpdateMillis - System.currentTimeMillis()
+                maxOf(nextUpdateMillis - System.currentTimeMillis(), 0)
             }
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "Enqueuing next artwork with delay of " +
                     DateUtils.formatElapsedTime(TimeUnit.MILLISECONDS.toSeconds(delay)))
             }
-            val workManager = WorkManager.getInstance() ?: return
-            workManager.beginUniqueWork(
+            val workManager = WorkManager.getInstance()
+            workManager.enqueueUniqueWork(
                     TAG,
-                    ExistingWorkPolicy.KEEP,
+                    ExistingWorkPolicy.REPLACE,
                     OneTimeWorkRequestBuilder<FeaturedArtWorker>()
                             .setInitialDelay(delay, TimeUnit.MILLISECONDS)
                             .setConstraints(Constraints.Builder()
                                     .setRequiredNetworkType(NetworkType.CONNECTED)
                                     .build())
-                            .build()
-            ).enqueue()
+                            .build())
         }
     }
 
-    override fun doWork(): Result {
+    override val coroutineContext = SINGLE_THREAD_CONTEXT
+
+    override suspend fun doWork(): Result {
         val jsonObject: JSONObject?
         try {
             jsonObject = fetchJsonObject(QUERY_URL)
-            val imageUri = jsonObject.optString(KEY_IMAGE_URI) ?: return Result.SUCCESS
+            val imageUri = jsonObject.optString(KEY_IMAGE_URI) ?: return Result.success()
             val artwork = Artwork().apply {
                 persistentUri = imageUri.toUri()
                 token = jsonObject.optString(KEY_TOKEN).takeUnless { it.isEmpty() } ?: imageUri
@@ -112,15 +126,14 @@ class FeaturedArtWorker : Worker() {
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "Adding new artwork: $imageUri")
             }
-            ProviderContract.Artwork.addArtwork(applicationContext,
-                    FeaturedArtProvider::class.java,
-                    artwork)
+            ProviderContract.getProviderClient(applicationContext, FEATURED_ART_AUTHORITY)
+                    .addArtwork(artwork)
         } catch (e: JSONException) {
             Log.e(TAG, "Error reading JSON", e)
-            return Result.RETRY
+            return Result.retry()
         } catch (e: IOException) {
             Log.e(TAG, "Error reading JSON", e)
-            return Result.RETRY
+            return Result.retry()
         }
 
         val nextTime: Date? = jsonObject.optString("nextTime")?.takeUnless {
@@ -155,7 +168,7 @@ class FeaturedArtWorker : Worker() {
         sp.edit {
             putLong(PREF_NEXT_UPDATE_MILLIS, nextUpdateMillis)
         }
-        return Result.SUCCESS
+        return Result.success()
     }
 
     @Throws(IOException::class, JSONException::class)

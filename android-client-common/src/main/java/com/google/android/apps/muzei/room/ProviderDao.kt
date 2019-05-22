@@ -16,13 +16,13 @@
 
 package com.google.android.apps.muzei.room
 
-import android.arch.lifecycle.LiveData
-import android.arch.persistence.room.Dao
-import android.arch.persistence.room.Insert
-import android.arch.persistence.room.Query
-import android.arch.persistence.room.Update
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.withContext
+import androidx.lifecycle.LiveData
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Update
 
 /**
  * Dao for Providers
@@ -35,16 +35,24 @@ abstract class ProviderDao {
     @get:Query("SELECT * FROM provider")
     internal abstract val currentProviderBlocking: Provider?
 
-    suspend fun getCurrentProvider() = withContext(CommonPool) {
-        currentProviderBlocking
+    @Query("SELECT * FROM provider")
+    abstract suspend fun getCurrentProvider(): Provider?
+
+    @Transaction
+    open suspend fun select(authority: String) {
+        deleteAll()
+        insert(Provider(authority))
     }
 
     @Insert
-    abstract fun insert(provider: Provider)
+    internal abstract suspend fun insert(provider: Provider)
 
     @Update
-    abstract fun update(provider: Provider)
+    abstract suspend fun update(provider: Provider)
+
+    @Delete
+    abstract suspend fun delete(provider: Provider)
 
     @Query("DELETE FROM provider")
-    abstract fun deleteAll()
+    internal abstract suspend fun deleteAll()
 }

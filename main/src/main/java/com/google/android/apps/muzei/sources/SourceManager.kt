@@ -16,11 +16,6 @@
 
 package com.google.android.apps.muzei.sources
 
-import android.arch.lifecycle.DefaultLifecycleObserver
-import android.arch.lifecycle.Lifecycle
-import android.arch.lifecycle.LifecycleOwner
-import android.arch.lifecycle.LifecycleRegistry
-import android.arch.lifecycle.MediatorLiveData
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -34,35 +29,42 @@ import android.os.Build
 import android.text.TextUtils
 import android.util.Log
 import android.widget.Toast
-import androidx.core.widget.toast
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.MediatorLiveData
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.observe
+import androidx.room.withTransaction
 import com.google.android.apps.muzei.api.MuzeiArtSource
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.ACTION_SUBSCRIBE
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.EXTRA_SUBSCRIBER_COMPONENT
 import com.google.android.apps.muzei.api.internal.ProtocolConstants.EXTRA_TOKEN
-import com.google.android.apps.muzei.featuredart.FeaturedArtProvider
+import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.room.Provider
 import com.google.android.apps.muzei.room.Source
-import com.google.android.apps.muzei.room.select
 import com.google.android.apps.muzei.room.sendAction
 import com.google.android.apps.muzei.sync.ProviderManager
-import com.google.android.apps.muzei.util.observeNonNull
+import com.google.android.apps.muzei.util.goAsync
+import com.google.android.apps.muzei.util.toastFromBackground
 import com.google.firebase.analytics.FirebaseAnalytics
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.android.UI
-import kotlinx.coroutines.experimental.launch
-import kotlinx.coroutines.experimental.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import net.nurik.roman.muzei.BuildConfig
+import net.nurik.roman.muzei.BuildConfig.SOURCES_AUTHORITY
 import net.nurik.roman.muzei.R
 import java.util.HashSet
 import java.util.concurrent.Executors
-import kotlin.reflect.KClass
 
 suspend fun Provider?.allowsNextArtwork(context: Context): Boolean {
     return when {
         this == null -> false
         supportsNextArtwork -> true
-        componentName != ComponentName(context, SourceArtProvider::class.java) -> false
+        authority != SOURCES_AUTHORITY -> false
         else -> MuzeiDatabase.getInstance(context).sourceDao()
                 .getCurrentSource()?.supportsNextArtwork == true
     }
@@ -79,11 +81,6 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
         private const val USER_PROPERTY_SELECTED_SOURCE_PACKAGE = "selected_source_package"
         private const val MAX_VALUE_LENGTH = 36
 
-        internal suspend fun selectSource(
-                context: Context,
-                source: KClass<out MuzeiArtSource>
-        ) = selectSource(context, ComponentName(context, source.java))
-
         suspend fun selectSource(
                 context: Context,
                 source: ComponentName
@@ -98,8 +95,7 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
                 Log.d(TAG, "Source $source selected.")
             }
 
-            return withContext(CommonPool) {
-                database.beginTransaction()
+            return database.withTransaction {
                 if (selectedSource != null) {
                     // Unselect the old source
                     selectedSource.selected = false
@@ -114,26 +110,20 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
                     selected = true
                     database.sourceDao().insert(this)
                 }
-
-                database.setTransactionSuccessful()
-                database.endTransaction()
-
                 newSource
             }
         }
 
-        fun nextArtwork(context: Context) = launch {
+        suspend fun nextArtwork(context: Context) {
             val provider = MuzeiDatabase.getInstance(context)
                     .providerDao().getCurrentProvider()
-            if (provider?.componentName ==
-                    ComponentName(context, SourceArtProvider::class.java)) {
+            if (provider?.authority == SOURCES_AUTHORITY) {
                 val source = MuzeiDatabase.getInstance(context)
                         .sourceDao().getCurrentSource()
                 if (source?.supportsNextArtwork == true) {
                     val artwork = MuzeiDatabase.getInstance(context)
                             .artworkDao().getCurrentArtwork()
                     artwork?.sendAction(context, MuzeiArtSource.BUILTIN_COMMAND_ID_NEXT_ARTWORK)
-                    return@launch
                 }
             } else {
                 ProviderManager.getInstance(context).nextArtwork()
@@ -141,7 +131,11 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
         }
     }
 
-    private val executor = Executors.newSingleThreadExecutor()
+    private val singleThreadContext by lazy {
+        Executors.newSingleThreadExecutor { target ->
+            Thread(target, "FeaturedArt")
+        }.asCoroutineDispatcher()
+    }
 
     private val sourcePackageChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent?) {
@@ -150,47 +144,44 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
             }
             val packageName = intent.data?.schemeSpecificPart
             // Update the sources from the changed package
-            executor.execute(UpdateSourcesRunnable(packageName))
-            val pendingResult = goAsync()
-            launch {
-                val source = MuzeiDatabase.getInstance(context)
-                        .sourceDao().getCurrentSource()
-                if (source != null && packageName == source.componentName.packageName) {
-                    try {
-                        context.packageManager.getServiceInfo(source.componentName, 0)
-                    } catch (e: PackageManager.NameNotFoundException) {
-                        Log.i(TAG, "Selected source ${source.componentName} is no longer available")
-                        FeaturedArtProvider::class.select(context)
-                        return@launch
-                    }
+            GlobalScope.launch(singleThreadContext) {
+                updateSources(packageName)
+            }
+            if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                goAsync {
+                    val source = MuzeiDatabase.getInstance(context)
+                            .sourceDao().getCurrentSource()
+                    if (source != null && packageName == source.componentName.packageName) {
+                        try {
+                            context.packageManager.getServiceInfo(source.componentName, 0)
+                        } catch (e: PackageManager.NameNotFoundException) {
+                            Log.i(TAG, "Selected source ${source.componentName} is no longer available")
+                            ProviderManager.select(context, FEATURED_ART_AUTHORITY)
+                            return@goAsync
+                        }
 
-                    // Some other change.
-                    if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        // Some other change.
                         Log.i(TAG, "Source package changed or replaced. Re-subscribing to ${source.componentName}")
                         source.subscribe()
                     }
                 }
-                pendingResult.finish()
             }
         }
     }
     private val lifecycleRegistry: LifecycleRegistry = LifecycleRegistry(this)
 
-    private inner class UpdateSourcesRunnable internal constructor(private val packageName: String? = null)
-        : Runnable {
-
-        override fun run() {
-            val queryIntent = Intent(MuzeiArtSource.ACTION_MUZEI_ART_SOURCE)
-            if (packageName != null) {
-                queryIntent.`package` = packageName
-            }
-            val pm = context.packageManager
-            val database = MuzeiDatabase.getInstance(context)
-            database.beginTransaction()
+    private suspend fun updateSources(packageName: String? = null) {
+        val queryIntent = Intent(MuzeiArtSource.ACTION_MUZEI_ART_SOURCE)
+        if (packageName != null) {
+            queryIntent.`package` = packageName
+        }
+        val pm = context.packageManager
+        val database = MuzeiDatabase.getInstance(context)
+        database.withTransaction {
             val existingSources = HashSet(if (packageName != null)
-                database.sourceDao().getSourcesComponentNamesByPackageNameBlocking(packageName)
+                database.sourceDao().getSourcesComponentNamesByPackageName(packageName)
             else
-                database.sourceDao().sourceComponentNamesBlocking)
+                database.sourceDao().getSourceComponentNames())
             val resolveInfos = pm.queryIntentServices(queryIntent,
                     PackageManager.GET_META_DATA)
             if (resolveInfos != null) {
@@ -202,8 +193,22 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
             }
             // Delete sources in the database that have since been removed
             database.sourceDao().deleteAll(existingSources.toTypedArray())
-            database.setTransactionSuccessful()
-            database.endTransaction()
+        }
+
+        // Enable or disable the SourceArtProvider based on whether
+        // there are any available sources
+        val sources = database.sourceDao().getSources()
+        val legacyComponentName = ComponentName(context, SourceArtProvider::class.java)
+        val currentState = pm.getComponentEnabledSetting(legacyComponentName)
+        val newState = if (sources.isEmpty()) {
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        } else {
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        }
+        if (currentState != newState) {
+            pm.setComponentEnabledSetting(legacyComponentName,
+                    newState,
+                    PackageManager.DONT_KILL_APP)
         }
     }
 
@@ -217,7 +222,7 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
                     // Don't do anything if it is the same Source
                     return@addSource
                 }
-                launch {
+                lifecycleScope.launch(Dispatchers.Main) {
                     currentSource?.unsubscribe()
                     currentSource = source
                     if (source != null) {
@@ -243,8 +248,15 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
     }
 
     override fun onCreate(owner: LifecycleOwner) {
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-        SubscriberLiveData().observeNonNull(this) { source ->
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        MuzeiDatabase.getInstance(context).providerDao().currentProvider.observe(owner) { provider ->
+            if (provider?.authority == SOURCES_AUTHORITY) {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            } else {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+            }
+        }
+        SubscriberLiveData().observe(this) { source ->
             sendSelectedSourceAnalytics(source.componentName)
         }
         // Register for package change events
@@ -257,25 +269,35 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
         }
         context.registerReceiver(sourcePackageChangeReceiver, packageChangeFilter)
         // Update the available sources in case we missed anything while Muzei was disabled
-        executor.execute(UpdateSourcesRunnable())
+        GlobalScope.launch(singleThreadContext) {
+            updateSources()
+        }
     }
 
-    private fun updateSourceFromServiceInfo(info: ServiceInfo) {
+    private suspend fun updateSourceFromServiceInfo(info: ServiceInfo) {
         val pm = context.packageManager
         val metaData = info.metaData
         val componentName = ComponentName(info.packageName, info.name)
         val sourceDao = MuzeiDatabase.getInstance(context).sourceDao()
-        val existingSource = sourceDao.getSourceByComponentNameBlocking(componentName)
+        val existingSource = sourceDao.getSourceByComponentName(componentName)
         if (metaData != null && metaData.containsKey("replacement")) {
             // Skip sources having a replacement MuzeiArtProvider that should be used instead
             if (existingSource != null) {
                 if (existingSource.selected) {
                     // If this is the selected source, switch Muzei to the new MuzeiArtProvider
                     // rather than continue to use the legacy MuzeiArtSource
-                    val replacement = ComponentName(context.packageName,
-                            metaData.getString("replacement"))
-                    launch {
-                        replacement.select(context)
+                    metaData.getString("replacement").takeUnless { it.isNullOrEmpty() }?.run {
+                        val providerInfo = pm.resolveContentProvider(this, 0)
+                                ?: try {
+                                    val replacement = ComponentName(context.packageName, this)
+                                    pm.getProviderInfo(replacement, 0)
+                                } catch (e: PackageManager.NameNotFoundException) {
+                                    // Invalid
+                                    null
+                                }
+                        if (providerInfo != null) {
+                            ProviderManager.select(context, providerInfo.authority)
+                        }
                     }
                 }
                 sourceDao.delete(existingSource)
@@ -389,22 +411,16 @@ class SourceManager(private val context: Context) : DefaultLifecycleObserver, Li
                     .putExtra(EXTRA_TOKEN, selectedSource.flattenToShortString()))
         } catch (e: PackageManager.NameNotFoundException) {
             Log.i(TAG, "Selected source $selectedSource is no longer available; switching to default.", e)
-            launch(UI) {
-                context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
-            }
-            FeaturedArtProvider::class.select(context)
+            context.toastFromBackground(R.string.source_unavailable, Toast.LENGTH_LONG)
+            ProviderManager.select(context, FEATURED_ART_AUTHORITY)
         } catch (e: IllegalStateException) {
             Log.i(TAG, "Selected source $selectedSource is no longer available; switching to default.", e)
-            launch(UI) {
-                context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
-            }
-            FeaturedArtProvider::class.select(context)
+            context.toastFromBackground(R.string.source_unavailable, Toast.LENGTH_LONG)
+            ProviderManager.select(context, FEATURED_ART_AUTHORITY)
         } catch (e: SecurityException) {
             Log.i(TAG, "Selected source $selectedSource is no longer available; switching to default.", e)
-            launch(UI) {
-                context.toast(R.string.source_unavailable, Toast.LENGTH_LONG)
-            }
-            FeaturedArtProvider::class.select(context)
+            context.toastFromBackground(R.string.source_unavailable, Toast.LENGTH_LONG)
+            ProviderManager.select(context, FEATURED_ART_AUTHORITY)
         }
     }
 

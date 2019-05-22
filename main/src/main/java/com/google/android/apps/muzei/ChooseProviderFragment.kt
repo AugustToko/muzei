@@ -17,52 +17,55 @@
 package com.google.android.apps.muzei
 
 import android.app.Activity
-import android.arch.lifecycle.ViewModelProvider
 import android.content.ActivityNotFoundException
-import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
-import android.support.v4.app.Fragment
-import android.support.v4.widget.DrawerLayout
-import android.support.v7.recyclerview.extensions.ListAdapter
-import android.support.v7.util.DiffUtil
-import android.support.v7.widget.RecyclerView
-import android.support.v7.widget.Toolbar
 import android.text.TextUtils
 import android.util.Log
-import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.widget.Toolbar
 import androidx.core.os.bundleOf
+import androidx.core.view.GravityCompat
+import androidx.core.view.ViewCompat
 import androidx.core.view.isGone
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
-import androidx.core.widget.toast
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.observe
 import androidx.navigation.fragment.findNavController
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DataSource
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
 import com.google.android.apps.muzei.api.provider.MuzeiArtProvider
 import com.google.android.apps.muzei.api.provider.ProviderContract
 import com.google.android.apps.muzei.notifications.NotificationSettingsDialogFragment
 import com.google.android.apps.muzei.room.MuzeiDatabase
-import com.google.android.apps.muzei.room.select
-import com.google.android.apps.muzei.sources.SourceArtProvider
-import com.google.android.apps.muzei.util.observe
+import com.google.android.apps.muzei.sync.ProviderManager
+import com.google.android.apps.muzei.util.toast
 import com.google.firebase.analytics.FirebaseAnalytics
-import com.squareup.picasso.Callback
-import com.squareup.picasso.Picasso
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import net.nurik.roman.muzei.BuildConfig.SOURCES_AUTHORITY
 import net.nurik.roman.muzei.R
-import java.lang.Exception
 
-class ChooseProviderFragment : Fragment() {
+class ChooseProviderFragment : Fragment(R.layout.choose_provider_fragment) {
     companion object {
         private const val TAG = "ChooseProviderFragment"
         private const val REQUEST_EXTENSION_SETUP = 1
@@ -78,58 +81,51 @@ class ChooseProviderFragment : Fragment() {
         MuzeiDatabase.getInstance(requireContext()).providerDao()
                 .currentProvider
     }
-    private val viewModelProvider by lazy {
-        ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory
-                .getInstance(requireActivity().application))
-    }
-    private val viewModel by lazy {
-        viewModelProvider[ChooseProviderViewModel::class.java]
-    }
+    private val viewModel: ChooseProviderViewModel by viewModels()
     private val adapter = ProviderListAdapter()
 
     private lateinit var toolbar: Toolbar
     private lateinit var drawerLayout: DrawerLayout
 
-    private var startActivityProvider: ComponentName? = null
+    private var startActivityProvider: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        startActivityProvider = savedInstanceState?.getParcelable(START_ACTIVITY_PROVIDER)
-    }
-
-    override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.choose_provider_fragment, container, false)
+        startActivityProvider = savedInstanceState?.getString(START_ACTIVITY_PROVIDER)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         // Ensure we have the latest insets
-        @Suppress("DEPRECATION")
-        view.requestFitSystemWindows()
+        ViewCompat.requestApplyInsets(view)
 
         toolbar = view.findViewById(R.id.toolbar)
         requireActivity().menuInflater.inflate(R.menu.choose_provider_fragment,
                 toolbar.menu)
+        val context = requireContext()
         toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.auto_advance_settings -> {
-                    if (drawerLayout.isDrawerOpen(Gravity.END)) {
-                        drawerLayout.closeDrawer(Gravity.END)
+                    if (drawerLayout.isDrawerOpen(GravityCompat.END)) {
+                        drawerLayout.closeDrawer(GravityCompat.END)
                     } else {
-                        drawerLayout.openDrawer(Gravity.END)
+                        FirebaseAnalytics.getInstance(context).logEvent(
+                                "auto_advance_open", null)
+                        drawerLayout.openDrawer(GravityCompat.END)
                     }
                     true
                 }
                 R.id.auto_advance_disabled -> {
-                    requireContext().toast(R.string.auto_advance_disabled_description,
+                    FirebaseAnalytics.getInstance(context).logEvent(
+                            "auto_advance_disabled", null)
+                    context.toast(R.string.auto_advance_disabled_description,
                             Toast.LENGTH_LONG)
                     true
                 }
                 R.id.action_notification_settings -> {
-                    NotificationSettingsDialogFragment.showSettings(requireContext(),
+                    FirebaseAnalytics.getInstance(context).logEvent(
+                            "notification_settings_open", bundleOf(
+                            FirebaseAnalytics.Param.CONTENT_TYPE to "overflow"))
+                    NotificationSettingsDialogFragment.showSettings(context,
                             childFragmentManager)
                     true
                 }
@@ -141,17 +137,15 @@ class ChooseProviderFragment : Fragment() {
         drawerLayout.setStatusBarBackgroundColor(Color.TRANSPARENT)
         drawerLayout.setScrimColor(Color.argb(68, 0, 0, 0))
         currentProviderLiveData.observe(this) { provider ->
-            val sourceArtProvider = ComponentName(requireContext(),
-                    SourceArtProvider::class.java)
-            val legacySelected = provider?.componentName == sourceArtProvider
+            val legacySelected = provider?.authority == SOURCES_AUTHORITY
             toolbar.menu.findItem(R.id.auto_advance_settings).isVisible = !legacySelected
             toolbar.menu.findItem(R.id.auto_advance_disabled).isVisible = legacySelected
             if (legacySelected) {
                 drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED,
-                        Gravity.END)
+                        GravityCompat.END)
             } else {
                 drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_UNLOCKED,
-                        Gravity.END)
+                        GravityCompat.END)
             }
         }
 
@@ -175,12 +169,12 @@ class ChooseProviderFragment : Fragment() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putParcelable(START_ACTIVITY_PROVIDER, startActivityProvider)
+        outState.putString(START_ACTIVITY_PROVIDER, startActivityProvider)
     }
 
     private fun launchProviderSetup(provider: ProviderInfo) {
         try {
-            startActivityProvider = provider.componentName
+            startActivityProvider = provider.authority
             val setupIntent = Intent()
                     .setComponent(provider.setupActivity)
                     .putExtra(MuzeiArtProvider.EXTRA_FROM_MUZEI, true)
@@ -194,7 +188,7 @@ class ChooseProviderFragment : Fragment() {
 
     private fun launchProviderSettings(provider: ProviderInfo) {
         try {
-            startActivityProvider = provider.componentName
+            startActivityProvider = provider.authority
             val settingsIntent = Intent()
                     .setComponent(provider.settingsActivity)
                     .putExtra(MuzeiArtProvider.EXTRA_FROM_MUZEI, true)
@@ -211,27 +205,28 @@ class ChooseProviderFragment : Fragment() {
             REQUEST_EXTENSION_SETUP -> {
                 val provider = startActivityProvider
                 if (resultCode == Activity.RESULT_OK && provider != null) {
-                    FirebaseAnalytics.getInstance(requireContext()).logEvent(
-                            FirebaseAnalytics.Event.SELECT_CONTENT, bundleOf(
-                            FirebaseAnalytics.Param.ITEM_ID to provider.flattenToShortString(),
-                            FirebaseAnalytics.Param.CONTENT_TYPE to "providers"))
                     val context = requireContext()
-                    launch {
-                        provider.select(context)
+                    GlobalScope.launch {
+                        FirebaseAnalytics.getInstance(context).logEvent(
+                                FirebaseAnalytics.Event.SELECT_CONTENT, bundleOf(
+                                FirebaseAnalytics.Param.ITEM_ID to provider,
+                                FirebaseAnalytics.Param.ITEM_CATEGORY to "providers",
+                                FirebaseAnalytics.Param.CONTENT_TYPE to "after_setup"))
+                        ProviderManager.select(context, provider)
                     }
                 }
                 startActivityProvider = null
             }
             REQUEST_EXTENSION_SETTINGS -> {
-                startActivityProvider?.let { componentName ->
-                    viewModel.refreshDescription(componentName)
+                startActivityProvider?.let { authority ->
+                    viewModel.refreshDescription(authority)
                 }
             }
             else -> super.onActivityResult(requestCode, resultCode, data)
         }
     }
 
-    inner class ProviderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView), Callback {
+    inner class ProviderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView), RequestListener<Drawable> {
         private val providerIcon: ImageView = itemView.findViewById(R.id.provider_icon)
         private val providerTitle: TextView = itemView.findViewById(R.id.provider_title)
         private val providerSelected: ImageView = itemView.findViewById(R.id.provider_selected)
@@ -246,20 +241,24 @@ class ChooseProviderFragment : Fragment() {
             itemView.setOnClickListener {
                 if (isSelected) {
                     val context = context
-                    val parentFragment = parentFragment
+                    val parentFragment = parentFragment?.parentFragment
                     if (context is Callbacks) {
+                        FirebaseAnalytics.getInstance(requireContext()).logEvent(
+                                "choose_provider_reselected", null)
                         context.onRequestCloseActivity()
                     } else if (parentFragment is Callbacks) {
+                        FirebaseAnalytics.getInstance(requireContext()).logEvent(
+                                "choose_provider_reselected", null)
                         parentFragment.onRequestCloseActivity()
                     }
                 } else if (setupActivity != null) {
                     FirebaseAnalytics.getInstance(requireContext()).logEvent(
                             FirebaseAnalytics.Event.VIEW_ITEM, bundleOf(
-                            FirebaseAnalytics.Param.ITEM_ID to componentName.flattenToShortString(),
+                            FirebaseAnalytics.Param.ITEM_ID to authority,
                             FirebaseAnalytics.Param.ITEM_NAME to title,
                             FirebaseAnalytics.Param.ITEM_CATEGORY to "providers"))
                     launchProviderSetup(this)
-                } else if (providerInfo.componentName == viewModel.playStoreComponentName) {
+                } else if (providerInfo.authority == viewModel.playStoreAuthority) {
                     FirebaseAnalytics.getInstance(requireContext()).logEvent("more_sources_open", null)
                     try {
                         startActivity(viewModel.playStoreIntent)
@@ -271,24 +270,29 @@ class ChooseProviderFragment : Fragment() {
                 } else {
                     FirebaseAnalytics.getInstance(requireContext()).logEvent(
                             FirebaseAnalytics.Event.SELECT_CONTENT, bundleOf(
-                            FirebaseAnalytics.Param.ITEM_ID to componentName.flattenToShortString(),
-                            FirebaseAnalytics.Param.CONTENT_TYPE to "providers"))
+                            FirebaseAnalytics.Param.ITEM_ID to authority,
+                            FirebaseAnalytics.Param.ITEM_NAME to title,
+                            FirebaseAnalytics.Param.ITEM_CATEGORY to "providers",
+                            FirebaseAnalytics.Param.CONTENT_TYPE to "choose"))
                     val context = requireContext()
-                    launch {
-                        componentName.select(context)
+                    GlobalScope.launch {
+                        ProviderManager.select(context, authority)
                     }
                 }
             }
             itemView.setOnLongClickListener {
-                val pkg = componentName.packageName
-                if (TextUtils.equals(pkg, requireContext().packageName)) {
+                if (TextUtils.equals(packageName, requireContext().packageName)) {
                     // Don't open Muzei's app info
                     return@setOnLongClickListener false
                 }
                 // Otherwise open third party extensions
                 try {
                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.fromParts("package", pkg, null)))
+                            Uri.fromParts("package", packageName, null)))
+                    FirebaseAnalytics.getInstance(requireContext()).logEvent(
+                            "app_settings_open", bundleOf(
+                            FirebaseAnalytics.Param.ITEM_ID to authority,
+                            FirebaseAnalytics.Param.ITEM_NAME to title))
                 } catch (e: ActivityNotFoundException) {
                     return@setOnLongClickListener false
                 }
@@ -305,22 +309,42 @@ class ChooseProviderFragment : Fragment() {
             setImage(providerInfo)
 
             setSelected(providerInfo)
-            providerSettings.setOnClickListener { launchProviderSettings(this) }
+            providerSettings.setOnClickListener {
+                FirebaseAnalytics.getInstance(requireContext()).logEvent(
+                        "provider_settings_open", bundleOf(
+                        FirebaseAnalytics.Param.ITEM_ID to authority,
+                        FirebaseAnalytics.Param.ITEM_NAME to title))
+                launchProviderSettings(this)
+            }
             providerBrowse.setOnClickListener {
+                FirebaseAnalytics.getInstance(requireContext()).logEvent(
+                        "provider_browse_open", bundleOf(
+                        FirebaseAnalytics.Param.ITEM_ID to authority,
+                        FirebaseAnalytics.Param.ITEM_NAME to title))
                 findNavController().navigate(
                         ChooseProviderFragmentDirections.browse(
-                                ProviderContract.Artwork.getContentUri(
-                                        requireContext(),
-                                        componentName)))
+                                ProviderContract.getContentUri(authority)))
             }
         }
 
-        override fun onSuccess() {
+        override fun onResourceReady(
+                resource: Drawable?,
+                model: Any?,
+                target: Target<Drawable>?,
+                dataSource: DataSource?,
+                isFirstResource: Boolean
+        ): Boolean {
             providerArtwork.isVisible = true
+            return false
         }
 
-        override fun onError(e: Exception?) {
+        override fun onLoadFailed(e: GlideException?,
+                model: Any?,
+                target: Target<Drawable>?,
+                isFirstResource: Boolean
+        ): Boolean {
             providerArtwork.isVisible = false
+            return false
         }
 
         fun setDescription(providerInfo: ProviderInfo) = providerInfo.run {
@@ -331,11 +355,10 @@ class ChooseProviderFragment : Fragment() {
         fun setImage(providerInfo: ProviderInfo) = providerInfo.run {
             providerArtwork.isVisible = currentArtworkUri != null
             if (currentArtworkUri != null) {
-                Picasso.get()
+                Glide.with(this@ChooseProviderFragment)
                         .load(currentArtworkUri)
-                        .centerCrop()
-                        .fit()
-                        .into(providerArtwork, this@ProviderViewHolder)
+                        .addListener(this@ProviderViewHolder)
+                        .into(providerArtwork)
             }
         }
 
@@ -352,7 +375,7 @@ class ChooseProviderFragment : Fragment() {
                 override fun areItemsTheSame(
                         providerInfo1: ProviderInfo,
                         providerInfo2: ProviderInfo
-                ) = providerInfo1.componentName == providerInfo2.componentName
+                ) = providerInfo1.authority == providerInfo2.authority
 
                 override fun areContentsTheSame(
                         providerInfo1: ProviderInfo,

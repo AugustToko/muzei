@@ -18,16 +18,16 @@ package com.google.android.apps.muzei.provider
 
 import android.content.Context
 import android.os.Build
-import android.support.v4.content.ContextCompat
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.google.android.apps.muzei.api.MuzeiContract
-import kotlinx.coroutines.experimental.Job
-import kotlinx.coroutines.experimental.delay
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import net.nurik.roman.muzei.androidclientcommon.BuildConfig
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 object DirectBootCache {
@@ -48,7 +48,7 @@ object DirectBootCache {
             return
         }
         cacheJob?.cancel()
-        cacheJob = launch {
+        cacheJob = GlobalScope.launch {
             delay(DIRECT_BOOT_CACHE_DELAY_MILLIS)
             if (cacheJob?.isCancelled == true) {
                 return@launch
@@ -66,7 +66,7 @@ object DirectBootCache {
                     }
                 }
                 Log.w(TAG, "Could not open the current artwork")
-            } catch (e: IOException) {
+            } catch (e: Exception) {
                 Log.e(TAG, "Unable to write artwork to direct boot storage", e)
             }
         }

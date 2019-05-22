@@ -22,13 +22,11 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
-    implementation "androidx.core:core-ktx:$rootProject.ext.ktxVersion"
+    implementation "androidx.core:core-ktx:$coreVersion"
     api project(':muzei-api')
     implementation project(':extensions')
-    api "android.arch.lifecycle:livedata:$lifecycleVersion"
+    api "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion"
 }
-
-kotlin.experimental.coroutines "enable"
 
 android {
     resourcePrefix 'single_'
@@ -38,6 +36,10 @@ android {
     defaultConfig {
         minSdkVersion 19
         targetSdkVersion rootProject.ext.targetSdkVersion
+
+        def singleAuthorityValue = "com.google.android.apps.muzei.single"
+        manifestPlaceholders = [singleAuthority: singleAuthorityValue]
+        buildConfigField "String", "SINGLE_AUTHORITY", "\"${singleAuthorityValue}\""
     }
 
     buildTypes {

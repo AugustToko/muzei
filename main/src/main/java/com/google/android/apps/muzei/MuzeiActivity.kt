@@ -18,20 +18,21 @@ package com.google.android.apps.muzei
 
 import android.app.Application
 import android.app.Notification
-import android.arch.lifecycle.AndroidViewModel
-import android.arch.lifecycle.LiveData
-import android.arch.lifecycle.MutableLiveData
-import android.arch.lifecycle.Observer
-import android.arch.lifecycle.ViewModelProvider
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.preference.PreferenceManager
-import android.support.v4.app.Fragment
-import android.support.v4.app.FragmentTransaction
-import android.support.v7.app.AppCompatActivity
 import android.view.View
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.os.bundleOf
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentTransaction
+import androidx.fragment.app.commit
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.observe
 import com.google.android.apps.muzei.notifications.NotificationSettingsDialogFragment
-import com.google.android.apps.muzei.util.observe
 import com.google.android.apps.muzei.wallpaper.WallpaperActiveState
 import com.google.firebase.analytics.FirebaseAnalytics
 import net.nurik.roman.muzei.BuildConfig
@@ -39,11 +40,7 @@ import net.nurik.roman.muzei.R
 
 class MuzeiActivity : AppCompatActivity() {
     private var fadeIn = false
-    private val viewModel : MuzeiActivityViewModel by lazy {
-        val viewModelProvider = ViewModelProvider(this,
-                ViewModelProvider.AndroidViewModelFactory.getInstance(application))
-        viewModelProvider[MuzeiActivityViewModel::class.java]
-    }
+    private val viewModel : MuzeiActivityViewModel by viewModels()
 
     private val currentFragment: Fragment
         get() {
@@ -85,23 +82,42 @@ class MuzeiActivity : AppCompatActivity() {
                 or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
 
         if (savedInstanceState == null) {
-            val currentFragment = currentFragment
-            supportFragmentManager.beginTransaction()
-                    .add(R.id.container, currentFragment)
-                    .setPrimaryNavigationFragment(currentFragment)
-                    .commit()
+            WallpaperActiveState.initState(this)
             fadeIn = true
         }
 
+        WallpaperActiveState.observe(this) {
+            val fragment = currentFragment
+            val oldFragment = supportFragmentManager.findFragmentById(R.id.container)
+            if (!fragment::class.java.isInstance(oldFragment)) {
+                // Only replace the Fragment if there was a change
+                supportFragmentManager.commit {
+                    replace(R.id.container, fragment)
+                    setPrimaryNavigationFragment(fragment).apply {
+                        if (oldFragment != null) {
+                            setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
+                        }
+                    }
+                }
+            }
+        }
+
         viewModel.seenTutorialLiveData.observe(this) {
-            val fragment = MainFragment()
-            supportFragmentManager.beginTransaction()
-                    .replace(R.id.container, fragment)
-                    .setPrimaryNavigationFragment(fragment)
-                    .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
-                    .commitAllowingStateLoss()
+            val fragment = currentFragment
+            if (!fragment::class.java.isInstance(
+                            supportFragmentManager.findFragmentById(R.id.container))) {
+                // Only replace the Fragment if there was a change
+                supportFragmentManager.commit(allowStateLoss = true) {
+                    replace(R.id.container, fragment)
+                    setPrimaryNavigationFragment(fragment)
+                    setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
+                }
+            }
         }
         if (intent?.hasCategory(Notification.INTENT_CATEGORY_NOTIFICATION_PREFERENCES) == true) {
+            FirebaseAnalytics.getInstance(this).logEvent(
+                    "notification_settings_open", bundleOf(
+                    FirebaseAnalytics.Param.CONTENT_TYPE to "intent"))
             NotificationSettingsDialogFragment.showSettings(this,
                     supportFragmentManager)
         }
@@ -109,15 +125,6 @@ class MuzeiActivity : AppCompatActivity() {
 
     override fun onPostResume() {
         super.onPostResume()
-
-        if (viewModel.wallpaperActiveStateChanged) {
-            val currentFragment = currentFragment
-            supportFragmentManager.beginTransaction()
-                    .replace(R.id.container, currentFragment)
-                    .setPrimaryNavigationFragment(currentFragment)
-                    .commit()
-            viewModel.wallpaperActiveStateChanged = false
-        }
 
         if (fadeIn) {
             // Note: normally should use window animations for this, but there's a bug
@@ -135,9 +142,7 @@ class MuzeiActivity : AppCompatActivity() {
     }
 }
 
-class MuzeiActivityViewModel(
-        application: Application
-): AndroidViewModel(application), Observer<Boolean> {
+class MuzeiActivityViewModel(application: Application): AndroidViewModel(application) {
 
     internal val seenTutorialLiveData : LiveData<Boolean> = object : MutableLiveData<Boolean>(),
             SharedPreferences.OnSharedPreferenceChangeListener {
@@ -156,25 +161,5 @@ class MuzeiActivityViewModel(
         override fun onInactive() {
             sp.unregisterOnSharedPreferenceChangeListener(this)
         }
-    }
-
-    internal var wallpaperActiveStateChanged = false
-    private var currentState = WallpaperActiveState.value
-
-    init {
-        // Use observeForever to continue to listen even after we're stopped
-        // as is the case when the wallpaper chooser is displayed over us
-        WallpaperActiveState.observeForever(this)
-    }
-
-    override fun onChanged(newState: Boolean?) {
-        if (currentState != newState) {
-            wallpaperActiveStateChanged = true
-            currentState = newState
-        }
-    }
-
-    override fun onCleared() {
-        WallpaperActiveState.removeObserver(this)
     }
 }

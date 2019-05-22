@@ -17,16 +17,18 @@
 package com.google.android.apps.muzei.complications
 
 import android.content.ComponentName
+import android.content.Context
 import android.os.Build
 import android.preference.PreferenceManager
-import android.support.annotation.RequiresApi
 import android.support.wearable.complications.ProviderUpdateRequester
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
+import androidx.work.WorkerParameters
 import com.google.android.apps.muzei.api.MuzeiContract
 import net.nurik.roman.muzei.BuildConfig
 import java.util.TreeSet
@@ -35,27 +37,29 @@ import java.util.TreeSet
  * Worker which listens for artwork change events and updates the Artwork Complication
  */
 @RequiresApi(Build.VERSION_CODES.N)
-class ArtworkComplicationWorker : Worker() {
+class ArtworkComplicationWorker(
+        context: Context,
+        workerParams: WorkerParameters
+) : Worker(context, workerParams) {
 
     companion object {
         private const val TAG = "ArtworkComplication"
 
         internal fun scheduleComplicationUpdate() {
-            val workManager = WorkManager.getInstance() ?: return
-            workManager.beginUniqueWork(TAG, ExistingWorkPolicy.REPLACE,
+            val workManager = WorkManager.getInstance()
+            workManager.enqueueUniqueWork(TAG, ExistingWorkPolicy.REPLACE,
                     OneTimeWorkRequestBuilder<ArtworkComplicationWorker>()
                             .setConstraints(Constraints.Builder()
                                     .addContentUriTrigger(MuzeiContract.Artwork.CONTENT_URI, true)
                                     .build())
-                            .build()
-            ).enqueue()
+                            .build())
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "Work scheduled")
             }
         }
 
         internal fun cancelComplicationUpdate() {
-            val workManager = WorkManager.getInstance() ?: return
+            val workManager = WorkManager.getInstance()
             workManager.cancelUniqueWork(TAG)
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "Work cancelled")
@@ -74,6 +78,6 @@ class ArtworkComplicationWorker : Worker() {
         }
         // Reschedule the job to listen for the next change
         scheduleComplicationUpdate()
-        return Result.SUCCESS
+        return Result.success()
     }
 }

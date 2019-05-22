@@ -19,21 +19,21 @@ package com.google.android.apps.muzei
 import android.app.WallpaperManager
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.support.v4.app.Fragment
-import android.view.LayoutInflater
+import android.util.AttributeSet
 import android.view.View
-import android.view.ViewGroup
+import android.widget.Button
 import android.widget.Toast
-import androidx.core.widget.toast
-
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.commitNow
 import com.google.android.apps.muzei.util.AnimatedMuzeiLogoFragment
+import com.google.android.apps.muzei.util.toast
 import com.google.firebase.analytics.FirebaseAnalytics
-
 import net.nurik.roman.muzei.R
 
-class IntroFragment : Fragment() {
+class IntroFragment : Fragment(R.layout.intro_fragment) {
 
     private lateinit var activateButton: View
 
@@ -45,14 +45,6 @@ class IntroFragment : Fragment() {
         }
     }
 
-    override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.intro_fragment, container, false)
-    }
-
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         activateButton = view.findViewById(R.id.activate_muzei_button)
         activateButton.setOnClickListener {
@@ -60,7 +52,7 @@ class IntroFragment : Fragment() {
             try {
                 startActivity(Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
                         .putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                                ComponentName(context,
+                                ComponentName(requireContext(),
                                         MuzeiWallpaperService::class.java))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             } catch (e: ActivityNotFoundException) {
@@ -78,9 +70,9 @@ class IntroFragment : Fragment() {
         super.onActivityCreated(savedInstanceState)
         if (savedInstanceState == null) {
             val logoFragment = AnimatedMuzeiLogoFragment()
-            childFragmentManager.beginTransaction()
-                    .add(R.id.animated_logo_fragment, logoFragment)
-                    .commitNow()
+            childFragmentManager.commitNow {
+                add(R.id.animated_logo_fragment, logoFragment)
+            }
 
             activateButton.alpha = 0f
             logoFragment.onFillStarted = {
@@ -93,4 +85,10 @@ class IntroFragment : Fragment() {
             }, 1000)
         }
     }
+}
+
+class IntroButton : Button {
+    constructor(context: Context) : super(context)
+    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs)
+    constructor(context: Context, attrs: AttributeSet?, attributeSetId: Int) : super(context, attrs, attributeSetId)
 }

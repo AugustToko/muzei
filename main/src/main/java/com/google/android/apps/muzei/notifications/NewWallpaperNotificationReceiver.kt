@@ -26,13 +26,14 @@ import android.content.res.Resources
 import android.os.Build
 import android.preference.PreferenceManager
 import android.provider.Settings
-import android.support.annotation.RequiresApi
-import android.support.v4.app.NotificationCompat
-import android.support.v4.app.NotificationManagerCompat
-import android.support.v4.app.RemoteInput
-import android.support.v4.content.ContextCompat
 import android.util.Log
+import androidx.annotation.RequiresApi
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.core.os.bundleOf
 import com.google.android.apps.muzei.ArtDetailOpenLiveData
 import com.google.android.apps.muzei.ArtworkInfoRedirectActivity
 import com.google.android.apps.muzei.render.ContentUriImageLoader
@@ -41,7 +42,8 @@ import com.google.android.apps.muzei.room.getCommands
 import com.google.android.apps.muzei.room.sendAction
 import com.google.android.apps.muzei.sources.SourceManager
 import com.google.android.apps.muzei.sources.allowsNextArtwork
-import kotlinx.coroutines.experimental.launch
+import com.google.android.apps.muzei.util.goAsync
+import com.google.firebase.analytics.FirebaseAnalytics
 import net.nurik.roman.muzei.R
 
 class NewWallpaperNotificationReceiver : BroadcastReceiver() {
@@ -61,7 +63,7 @@ class NewWallpaperNotificationReceiver : BroadcastReceiver() {
 
         private const val EXTRA_USER_COMMAND = "com.google.android.apps.muzei.extra.USER_COMMAND"
 
-        fun markNotificationRead(context: Context) = launch {
+        suspend fun markNotificationRead(context: Context) {
             val lastArtwork = MuzeiDatabase.getInstance(context).artworkDao()
                     .getCurrentArtwork()
             if (lastArtwork != null) {
@@ -186,7 +188,7 @@ class NewWallpaperNotificationReceiver : BroadcastReceiver() {
             }
             val commands = artwork.getCommands(context)
             // Show custom actions as a selectable list on Android Wear devices
-            if (!commands.isEmpty()) {
+            if (commands.isNotEmpty()) {
                 val actions = commands.map { it.title }.toTypedArray()
                 val userCommandPendingIntent = PendingIntent.getBroadcast(context, 0,
                         Intent(context, NewWallpaperNotificationReceiver::class.java)
@@ -205,7 +207,7 @@ class NewWallpaperNotificationReceiver : BroadcastReceiver() {
                         .build())
             }
             val viewPendingIntent = PendingIntent.getActivity(context, 0,
-                    ArtworkInfoRedirectActivity.getIntent(context),
+                    ArtworkInfoRedirectActivity.getIntent(context, "notification"),
                     PendingIntent.FLAG_UPDATE_CURRENT)
             val viewAction = NotificationCompat.Action.Builder(
                     R.drawable.ic_notif_info,
@@ -272,8 +274,7 @@ class NewWallpaperNotificationReceiver : BroadcastReceiver() {
                         // Construct an Intent to get to the notification settings screen
                         val settingsIntent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
                         settingsIntent.putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                        settingsIntent.putExtra(Settings.EXTRA_CHANNEL_ID,
-                                NewWallpaperNotificationReceiver.NOTIFICATION_CHANNEL)
+                        settingsIntent.putExtra(Settings.EXTRA_CHANNEL_ID, NOTIFICATION_CHANNEL)
                         // Build the notification
                         val builder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL)
                                 .setSmallIcon(R.drawable.ic_stat_muzei)
@@ -301,28 +302,37 @@ class NewWallpaperNotificationReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
-        when (intent?.action) {
-            ACTION_MARK_NOTIFICATION_READ -> markNotificationRead(context)
-            ACTION_NEXT_ARTWORK -> SourceManager.nextArtwork(context)
-            ACTION_USER_COMMAND -> triggerUserCommandFromRemoteInput(context, intent)
+        goAsync {
+            when (intent?.action) {
+                ACTION_MARK_NOTIFICATION_READ -> markNotificationRead(context)
+                ACTION_NEXT_ARTWORK -> {
+                    FirebaseAnalytics.getInstance(context).logEvent(
+                            "next_artwork", bundleOf(
+                            FirebaseAnalytics.Param.CONTENT_TYPE to "notification"))
+                    SourceManager.nextArtwork(context)
+                }
+                ACTION_USER_COMMAND -> triggerUserCommandFromRemoteInput(context, intent)
+            }
         }
     }
 
-    private fun triggerUserCommandFromRemoteInput(context: Context, intent: Intent) {
+    private suspend fun triggerUserCommandFromRemoteInput(context: Context, intent: Intent) {
         val selectedCommand = RemoteInput.getResultsFromIntent(intent)
                 ?.getCharSequence(EXTRA_USER_COMMAND)?.toString()
                 ?: return
-        val pendingResult = goAsync()
-        launch {
             val artwork = MuzeiDatabase.getInstance(context).artworkDao()
                     .getCurrentArtwork()
             if (artwork != null) {
                 val commands = artwork.getCommands(context)
                 commands.find { selectedCommand == it.title }?.run {
+                    FirebaseAnalytics.getInstance(context).logEvent(
+                            FirebaseAnalytics.Event.SELECT_CONTENT, bundleOf(
+                            FirebaseAnalytics.Param.ITEM_ID to id,
+                            FirebaseAnalytics.Param.ITEM_NAME to title,
+                            FirebaseAnalytics.Param.ITEM_CATEGORY to "actions",
+                            FirebaseAnalytics.Param.CONTENT_TYPE to "notification"))
                     artwork.sendAction(context, id)
                 }
             }
-            pendingResult.finish()
-        }
     }
 }
