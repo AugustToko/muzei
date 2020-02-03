@@ -28,19 +28,14 @@ dependencies {
     implementation "androidx.exifinterface:exifinterface:$exifInterfaceVersion"
     implementation "androidx.lifecycle:lifecycle-common-java8:$lifecycleVersion"
     api "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion"
+    implementation "androidx.preference:preference-ktx:$preferenceVersion"
     implementation "androidx.work:work-runtime-ktx:$workManagerVersion"
     api "androidx.room:room-ktx:$roomVersion"
     kapt "androidx.room:room-compiler:$roomVersion"
-    api("com.google.firebase:firebase-core:$firebaseCoreVersion") {
-        exclude module: 'support-v4'
-    }
-    api("com.google.firebase:firebase-perf:$firebasePerfVersion") {
-        exclude module: 'support-v4'
-    }
-    api "com.crashlytics.sdk.android:crashlytics:$crashlyticsVersion"
-    api("com.google.android.gms:play-services-wearable:$playServicesWearableVersion") {
-        exclude module: 'support-v4'
-    }
+    api "com.google.firebase:firebase-analytics:$firebaseAnalyticsVersion"
+    api "com.google.firebase:firebase-crashlytics:$firebaseCrashlyticsVersion"
+    api "com.google.firebase:firebase-perf:$firebasePerfVersion"
+    api "com.google.android.gms:play-services-wearable:$playServicesWearableVersion"
 }
 
 android {
@@ -56,8 +51,10 @@ android {
 
         javaCompileOptions {
             annotationProcessorOptions {
-                arguments = ["room.schemaLocation":
-                                     "$projectDir/schemas".toString()]
+                arguments = [
+                        "room.schemaLocation":"$projectDir/schemas".toString(),
+                        "room.incremental":"true",
+                ]
             }
         }
     }
@@ -70,5 +67,8 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
     }
 }

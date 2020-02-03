@@ -33,10 +33,10 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.observe
 import com.google.android.apps.muzei.MuzeiWallpaperService
+import com.google.android.apps.muzei.legacy.LegacySourceManager
+import com.google.android.apps.muzei.legacy.allowsNextArtwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.room.Provider
-import com.google.android.apps.muzei.sources.SourceManager
-import com.google.android.apps.muzei.sources.allowsNextArtwork
 import com.google.android.apps.muzei.util.toast
 import com.google.android.apps.muzei.wallpaper.WallpaperActiveState
 import com.google.firebase.analytics.FirebaseAnalytics
@@ -113,7 +113,7 @@ class NextArtworkTileService : TileService(), LifecycleOwner {
                         FirebaseAnalytics.getInstance(context).logEvent(
                                 "next_artwork", bundleOf(
                                 FirebaseAnalytics.Param.CONTENT_TYPE to "tile"))
-                        SourceManager.nextArtwork(context)
+                        LegacySourceManager.getInstance(context).nextArtwork()
                     }
                 }
                 else -> unlockAndRun {

@@ -33,7 +33,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Message
-import android.preference.PreferenceManager
 import android.support.wearable.complications.ComplicationData
 import android.support.wearable.complications.SystemProviders
 import android.support.wearable.complications.rendering.ComplicationDrawable
@@ -52,6 +51,7 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.Observer
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.observe
+import androidx.preference.PreferenceManager
 import com.google.android.apps.muzei.complications.ArtworkComplicationProviderService
 import com.google.android.apps.muzei.datalayer.ActivateMuzeiIntentService
 import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
@@ -72,6 +72,7 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import kotlin.math.min
 
 /**
  * Default watch face for Muzei, showing the current time atop the current artwork. In ambient
@@ -167,14 +168,14 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
         internal var topComplication: ComplicationDrawable? = null
         internal var bottomComplication: ComplicationDrawable? = null
         private val drawableCallback = object : Drawable.Callback {
-            override fun invalidateDrawable(who: Drawable?) {
+            override fun invalidateDrawable(who: Drawable) {
                 invalidate()
             }
 
-            override fun scheduleDrawable(who: Drawable?, what: Runnable?, `when`: Long) {
+            override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
             }
 
-            override fun unscheduleDrawable(who: Drawable?, what: Runnable?) {
+            override fun unscheduleDrawable(who: Drawable, what: Runnable) {
             }
         }
 
@@ -506,10 +507,10 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
             when (tapType) {
                 WatchFaceService.TAP_TYPE_TAP -> {
                     when {
-                        topComplication?.safeOnTap(x, y) == true -> {
+                        topComplication?.onTap(x, y) == true -> {
                             invalidate()
                         }
-                        bottomComplication?.safeOnTap(x, y) == true -> {
+                        bottomComplication?.onTap(x, y) == true -> {
                             invalidate()
                         }
                         tapAction == "toggle" -> {
@@ -576,8 +577,7 @@ class MuzeiWatchFace : CanvasWatchFaceService(), LifecycleOwner {
             else
                 timeFormat12h.format(calendar.time)
             val xOffset = width / 2f
-            val yOffset = Math.min((height + clockTextHeight) / 2,
-                    (if (cardBounds.top == 0) height else cardBounds.top) - clockMargin)
+            val yOffset = min((height + clockTextHeight) / 2, (if (cardBounds.top == 0) height else cardBounds.top) - clockMargin)
             if (!blurred) {
                 canvas.drawText(formattedTime,
                         xOffset,

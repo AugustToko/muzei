@@ -21,12 +21,12 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.preference.PreferenceManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.core.content.edit
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.FragmentManager
+import androidx.preference.PreferenceManager
 import com.google.android.apps.muzei.util.toast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import net.nurik.roman.muzei.R
@@ -42,11 +42,8 @@ class NotificationSettingsDialogFragment : DialogFragment() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 // Ensure the notification channel exists
                 NewWallpaperNotificationReceiver.createNotificationChannel(context)
-                val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                 intent.putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                // Open the specific channel since we only have one notification channel
-                intent.putExtra(Settings.EXTRA_CHANNEL_ID,
-                        NewWallpaperNotificationReceiver.NOTIFICATION_CHANNEL)
                 if (intent.resolveActivity(context.packageManager) != null) {
                     context.startActivity(intent)
                 } else {

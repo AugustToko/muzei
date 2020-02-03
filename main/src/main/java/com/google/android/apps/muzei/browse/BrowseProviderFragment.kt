@@ -16,19 +16,17 @@
 
 package com.google.android.apps.muzei.browse
 
-import android.graphics.Color
-import android.os.Build
 import android.os.Bundle
+import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.appcompat.graphics.drawable.DrawerArrowDrawable
 import androidx.appcompat.widget.Toolbar
-import androidx.core.content.ContextCompat
 import androidx.core.os.bundleOf
-import androidx.core.view.ViewCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.observe
 import androidx.navigation.fragment.findNavController
@@ -36,38 +34,44 @@ import androidx.navigation.fragment.navArgs
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
-import com.bumptech.glide.Glide
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import coil.api.load
+import com.google.android.apps.muzei.legacy.LegacySourceServiceProtocol
 import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.MuzeiDatabase
+import com.google.android.apps.muzei.room.getCommands
+import com.google.android.apps.muzei.room.sendAction
+import com.google.android.apps.muzei.sync.ProviderManager
 import com.google.android.apps.muzei.util.toast
 import com.google.firebase.analytics.FirebaseAnalytics
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.nurik.roman.muzei.R
 
 class BrowseProviderFragment: Fragment(R.layout.browse_provider_fragment) {
+
+    companion object {
+        const val REFRESH_DELAY = 300L // milliseconds
+    }
 
     private val viewModel: BrowseProviderViewModel by viewModels()
     private val args: BrowseProviderFragmentArgs by navArgs()
     private val adapter = Adapter()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        // Ensure we have the latest insets
-        ViewCompat.requestApplyInsets(view)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            requireActivity().window.statusBarColor = ContextCompat.getColor(
-                    requireContext(), R.color.theme_primary_dark)
-        }
-
         val pm = requireContext().packageManager
-        val providerInfo = pm.resolveContentProvider(args.contentUri.authority, 0)
+        val providerInfo = pm.resolveContentProvider(args.contentUri.authority!!, 0)
                 ?: run {
                     findNavController().popBackStack()
                     return
                 }
 
+        val swipeRefreshLayout = view.findViewById<SwipeRefreshLayout>(R.id.browse_swipe_refresh)
+        swipeRefreshLayout.setOnRefreshListener {
+            refresh(swipeRefreshLayout)
+        }
         view.findViewById<Toolbar>(R.id.browse_toolbar).apply {
             navigationIcon = DrawerArrowDrawable(requireContext()).apply {
                 progress = 1f
@@ -76,36 +80,47 @@ class BrowseProviderFragment: Fragment(R.layout.browse_provider_fragment) {
                 findNavController().popBackStack()
             }
             title = providerInfo.loadLabel(pm)
+            inflateMenu(R.menu.browse_provider_fragment)
+            setOnMenuItemClickListener {
+                refresh(swipeRefreshLayout)
+                true
+            }
         }
         view.findViewById<RecyclerView>(R.id.browse_list).adapter = adapter
 
         viewModel.setContentUri(args.contentUri)
-        viewModel.artLiveData.observe(this) {
+        viewModel.artLiveData.observe(viewLifecycleOwner) {
             adapter.submitList(it)
         }
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            requireActivity().window.statusBarColor = Color.TRANSPARENT
+    private fun refresh(swipeRefreshLayout: SwipeRefreshLayout) {
+        lifecycleScope.launch {
+            ProviderManager.requestLoad(requireContext(), args.contentUri)
+            // Show the refresh indicator for some visible amount of time
+            // rather than immediately dismissing it. We don't know how long
+            // the provider will actually take to refresh, if it does at all.
+            delay(REFRESH_DELAY)
+            withContext(Dispatchers.Main.immediate) {
+                swipeRefreshLayout.isRefreshing = false
+            }
         }
     }
 
     class ArtViewHolder(
-            private val coroutineScope: CoroutineScope,
+            private val owner: LifecycleOwner,
             itemView: View
     ): RecyclerView.ViewHolder(itemView) {
         private val imageView = itemView.findViewById<ImageView>(R.id.browse_image)
 
         fun bind(artwork: Artwork) {
+            val context = itemView.context
             imageView.contentDescription = artwork.title
-            Glide.with(imageView)
-                    .load(artwork.imageUri)
-                    .into(imageView)
+            imageView.load(artwork.imageUri) {
+                lifecycle(owner)
+            }
             itemView.setOnClickListener {
-                val context = it.context
-                coroutineScope.launch(Dispatchers.Main) {
+                owner.lifecycleScope.launch(Dispatchers.Main) {
                     FirebaseAnalytics.getInstance(context).logEvent(
                             FirebaseAnalytics.Event.SELECT_CONTENT, bundleOf(
                             FirebaseAnalytics.Param.ITEM_ID to artwork.id,
@@ -122,6 +137,28 @@ class BrowseProviderFragment: Fragment(R.layout.browse_provider_fragment) {
                     })
                 }
             }
+            itemView.setOnCreateContextMenuListener(null)
+            owner.lifecycleScope.launch(Dispatchers.Main.immediate) {
+                val actions = artwork.getCommands(context).filterNot {
+                    it.id == LegacySourceServiceProtocol.LEGACY_COMMAND_ID_NEXT_ARTWORK
+                }.filterNot {
+                    it.title.isNullOrEmpty()
+                }
+                if (actions.isNotEmpty()) {
+                    itemView.setOnCreateContextMenuListener { menu, _, _ ->
+                        actions.forEachIndexed { index, action ->
+                            menu.add(Menu.NONE, action.id, index, action.title).apply {
+                                setOnMenuItemClickListener {
+                                    owner.lifecycleScope.launch {
+                                        artwork.sendAction(context, action.id)
+                                    }
+                                    true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -135,7 +172,7 @@ class BrowseProviderFragment: Fragment(R.layout.browse_provider_fragment) {
             }
     ) {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
-                ArtViewHolder(viewLifecycleOwner.lifecycleScope,
+                ArtViewHolder(viewLifecycleOwner,
                         layoutInflater.inflate(R.layout.browse_provider_item, parent, false))
 
         override fun onBindViewHolder(holder: ArtViewHolder, position: Int) {

@@ -30,7 +30,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.ResultReceiver
-import android.preference.PreferenceManager
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
@@ -38,6 +37,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.TaskStackBuilder
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.preference.PreferenceManager
 import com.google.android.apps.muzei.ChooseProviderActivity
 import com.google.android.apps.muzei.util.toast
 import com.google.android.gms.wearable.CapabilityClient
@@ -49,7 +49,6 @@ import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.tasks.await
 import net.nurik.roman.muzei.R
 import java.util.TreeSet
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeoutException
 
 class ActivateMuzeiIntentService : IntentService(TAG) {
@@ -79,6 +78,7 @@ class ActivateMuzeiIntentService : IntentService(TAG) {
                 node = getNode(context, CapabilityClient.FILTER_ALL)
             } catch (e: TimeoutException) {
                 // Google Play services is out of date, nothing more we can do
+                Log.e(TAG, "Timed out connecting to Google Play services", e)
                 return
             }
             if (node != null) {
@@ -178,10 +178,7 @@ class ActivateMuzeiIntentService : IntentService(TAG) {
             val capabilityClient = Wearable.getCapabilityClient(context)
             val nodes: Set<Node> = try {
                 capabilityClient.getCapability("activate_muzei", capability).await().nodes
-            } catch (e: ExecutionException) {
-                Log.e(TAG, "Error getting all capability info", e)
-                TreeSet()
-            } catch (e: InterruptedException) {
+            } catch (e: Exception) {
                 Log.e(TAG, "Error getting all capability info", e)
                 TreeSet()
             }

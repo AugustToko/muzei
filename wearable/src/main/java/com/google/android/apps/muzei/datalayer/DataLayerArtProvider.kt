@@ -37,7 +37,6 @@ import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.InputStream
 import java.util.TreeSet
-import java.util.concurrent.ExecutionException
 
 /**
  * Provider handling art from a connected phone
@@ -53,8 +52,9 @@ class DataLayerArtProvider : MuzeiArtProvider() {
     }
 
     override fun onLoadRequested(initial: Boolean) {
+        val context = context ?: return
         if (initial) {
-            DataLayerLoadWorker.enqueueLoad()
+            DataLayerLoadWorker.enqueueLoad(context)
         }
     }
 
@@ -69,10 +69,7 @@ class DataLayerArtProvider : MuzeiArtProvider() {
                     // older versions of Muzei's phone app
                     capabilityClient.getCapability("activate_muzei",
                             CapabilityClient.FILTER_REACHABLE).await().nodes
-                } catch (e: ExecutionException) {
-                    Log.e(TAG, "Error getting reachable capability info", e)
-                    TreeSet()
-                } catch (e: InterruptedException) {
+                } catch (e: Exception) {
                     Log.e(TAG, "Error getting reachable capability info", e)
                     TreeSet()
                 }

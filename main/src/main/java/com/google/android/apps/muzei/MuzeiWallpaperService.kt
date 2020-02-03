@@ -42,6 +42,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.observe
 import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
+import com.google.android.apps.muzei.legacy.LegacySourceManager
 import com.google.android.apps.muzei.notifications.NotificationUpdater
 import com.google.android.apps.muzei.render.ImageLoader
 import com.google.android.apps.muzei.render.MuzeiBlurRenderer
@@ -53,7 +54,6 @@ import com.google.android.apps.muzei.room.openArtworkInfo
 import com.google.android.apps.muzei.settings.EffectsLockScreenOpenLiveData
 import com.google.android.apps.muzei.settings.Prefs
 import com.google.android.apps.muzei.shortcuts.ArtworkInfoShortcutController
-import com.google.android.apps.muzei.sources.SourceManager
 import com.google.android.apps.muzei.sync.ProviderManager
 import com.google.android.apps.muzei.util.filterNotNull
 import com.google.android.apps.muzei.wallpaper.LockscreenObserver
@@ -90,7 +90,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
     override fun onCreate() {
         super.onCreate()
         wallpaperLifecycle.addObserver(WorkManagerInitializer.initializeObserver(this))
-        wallpaperLifecycle.addObserver(SourceManager(this))
+        wallpaperLifecycle.addObserver(LegacySourceManager.getInstance(this))
         wallpaperLifecycle.addObserver(NotificationUpdater(this))
         wallpaperLifecycle.addObserver(WearableController(this))
         wallpaperLifecycle.addObserver(WidgetUpdater(this))
@@ -333,7 +333,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
                         FirebaseAnalytics.getInstance(this@MuzeiWallpaperService).logEvent(
                                 "next_artwork", bundleOf(
                                 FirebaseAnalytics.Param.CONTENT_TYPE to type))
-                        SourceManager.nextArtwork(this@MuzeiWallpaperService)
+                        LegacySourceManager.getInstance(this@MuzeiWallpaperService).nextArtwork()
                     }
                 }
                 Prefs.PREF_TAP_ACTION_VIEW_DETAILS -> {
@@ -385,7 +385,7 @@ class MuzeiWallpaperService : GLWallpaperService(), LifecycleOwner {
             delayedBlur = lifecycleScope.launch {
                 delay(TEMPORARY_FOCUS_DURATION_MILLIS)
                 queueEvent {
-                    renderer.setIsBlurred(true, false)
+                    renderer.setIsBlurred(isBlurred = true, artDetailMode = false)
                 }
             }
         }

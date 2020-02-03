@@ -34,18 +34,14 @@ import java.io.File
 /**
  * Room Database for Muzei
  */
-@Database(entities = [(Artwork::class), (Source::class), (Provider::class)], version = 8)
+@Database(entities = [(Artwork::class), (Provider::class)], version = 9)
 abstract class MuzeiDatabase : RoomDatabase() {
-
-    abstract fun sourceDao(): SourceDao
 
     abstract fun providerDao(): ProviderDao
 
     abstract fun artworkDao(): ArtworkDao
 
     companion object {
-        const val ACTION_PROVIDER_CHANGED = "com.google.android.apps.muzei.ACTION_PROVIDER_CHANGED"
-
         @Volatile
         private var instance: MuzeiDatabase? = null
 
@@ -61,10 +57,12 @@ abstract class MuzeiDatabase : RoomDatabase() {
                                 MIGRATION_4_5,
                                 MIGRATION_5_6,
                                 Migration6to8(applicationContext),
-                                Migration7to8(applicationContext))
+                                Migration7to8(applicationContext),
+                                MIGRATION_8_9)
                         .build().also { database ->
                             database.invalidationTracker.addObserver(
                                     object : InvalidationTracker.Observer("artwork") {
+                                        @Suppress("DEPRECATION")
                                         override fun onInvalidated(tables: Set<String>) {
                                             DirectBootCache.onArtworkChanged(applicationContext)
                                             applicationContext.contentResolver
@@ -75,21 +73,21 @@ abstract class MuzeiDatabase : RoomDatabase() {
                                     }
                             )
                             database.invalidationTracker.addObserver(
-                                    object : InvalidationTracker.Observer("sources") {
+                                    object : InvalidationTracker.Observer("provider") {
+                                        @Suppress("DEPRECATION")
                                         override fun onInvalidated(tables: Set<String>) {
                                             applicationContext.contentResolver
                                                     .notifyChange(MuzeiContract.Sources.CONTENT_URI, null)
+                                            // First send a targeted broadcast just to ourselves
+                                            applicationContext.sendBroadcast(
+                                                    Intent(MuzeiContract.Sources.ACTION_SOURCE_CHANGED).apply {
+                                                        `package` = applicationContext.packageName
+                                                    })
+                                            // Now send another broadcast to other apps listening
+                                            // (it is expected that our own listener filters
+                                            // these second calls out)
                                             applicationContext.sendBroadcast(
                                                     Intent(MuzeiContract.Sources.ACTION_SOURCE_CHANGED))
-                                        }
-                                    }
-                            )
-                            database.invalidationTracker.addObserver(
-                                    object : InvalidationTracker.Observer("provider") {
-                                        override fun onInvalidated(tables: Set<String>) {
-                                            applicationContext.sendBroadcast(
-                                                    Intent(ACTION_PROVIDER_CHANGED)
-                                                            .setPackage(applicationContext.packageName))
                                         }
                                     }
                             )
@@ -244,7 +242,7 @@ abstract class MuzeiDatabase : RoomDatabase() {
                     database.query("SELECT component_name FROM sources WHERE selected=1").use { selectedSource ->
                         if (selectedSource != null && selectedSource.moveToFirst()) {
                             val componentName = ComponentName.unflattenFromString(
-                                    selectedSource.getString(0))
+                                    selectedSource.getString(0))!!
                             val info = context.packageManager.getServiceInfo(componentName,
                                     PackageManager.GET_META_DATA)
                             val metadata = info.metaData
@@ -308,15 +306,13 @@ abstract class MuzeiDatabase : RoomDatabase() {
                         selectedProvider ->
                         if (selectedProvider.moveToFirst()) {
                             val componentName = ComponentName.unflattenFromString(
-                                    selectedProvider.getString(0))
+                                    selectedProvider.getString(0))!!
                             val supportsNextArtwork = selectedProvider.getInt(1)
                             val info = context.packageManager.getProviderInfo(componentName, 0)
-                            if (info != null) {
-                                database.execSQL("INSERT INTO provider2 " +
-                                        "(authority, supportsNextArtwork) "
-                                        + "VALUES (?, ?)",
-                                        arrayOf(info.authority, supportsNextArtwork))
-                            }
+                            database.execSQL("INSERT INTO provider2 " +
+                                    "(authority, supportsNextArtwork) "
+                                    + "VALUES (?, ?)",
+                                    arrayOf(info.authority, supportsNextArtwork))
                         }
                     }
                 } catch (e: PackageManager.NameNotFoundException) {
@@ -340,7 +336,7 @@ abstract class MuzeiDatabase : RoomDatabase() {
                     while (artwork.moveToNext()) {
                         val id = artwork.getLong(0)
                         val componentName = ComponentName.unflattenFromString(
-                                artwork.getString(1))
+                                artwork.getString(1))!!
                         val imageUri = artwork.getString(2)
                         val title = artwork.getString(3)
                         val byline = artwork.getString(4)
@@ -350,14 +346,12 @@ abstract class MuzeiDatabase : RoomDatabase() {
 
                         try {
                             val info = context.packageManager.getProviderInfo(componentName, 0)
-                            if (info != null) {
-                                database.execSQL("INSERT INTO artwork2 " +
-                                        "(_id, providerAuthority, imageUri, " +
-                                        "title, byline, attribution, metaFont, date_added) "
-                                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                        arrayOf(id, info.authority, imageUri, title,
-                                                byline, attribution, metaFont, dateAdded))
-                            }
+                            database.execSQL("INSERT INTO artwork2 " +
+                                    "(_id, providerAuthority, imageUri, " +
+                                    "title, byline, attribution, metaFont, date_added) "
+                                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                    arrayOf(id, info.authority, imageUri, title,
+                                            byline, attribution, metaFont, dateAdded))
                         } catch (e: PackageManager.NameNotFoundException) {
                             // Couldn't find the provider, so there's nothing more to do
                         }
@@ -366,6 +360,13 @@ abstract class MuzeiDatabase : RoomDatabase() {
                 database.execSQL("DROP TABLE artwork")
                 database.execSQL("ALTER TABLE artwork2 RENAME TO artwork")
                 database.execSQL("CREATE INDEX index_Artwork_providerAuthority " + "ON artwork (providerAuthority)")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Drop the legacy source table
+                database.execSQL("DROP TABLE sources")
             }
         }
     }

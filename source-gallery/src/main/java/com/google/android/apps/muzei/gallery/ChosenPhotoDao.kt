@@ -75,7 +75,7 @@ internal abstract class ChosenPhotoDao {
                     context.getString(R.string.gallery_shared_from, callingApplication))
             GalleryDatabase.getInstance(context).metadataDao().insert(metadata)
         }
-        GalleryScanWorker.enqueueInitialScan(listOf(id))
+        GalleryScanWorker.enqueueInitialScan(context, listOf(id))
         id
     } else {
         0L
@@ -89,7 +89,9 @@ internal abstract class ChosenPhotoDao {
                 .map { ChosenPhoto(it) }
                 .filter { persistUriAccess(context, it) }
         ).run {
-            GalleryScanWorker.enqueueInitialScan(this)
+            if (isNotEmpty()) {
+                GalleryScanWorker.enqueueInitialScan(context, this)
+            }
         }
     }
 

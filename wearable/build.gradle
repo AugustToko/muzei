@@ -17,8 +17,8 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-kapt'
+apply plugin: 'com.google.firebase.crashlytics'
 apply plugin: 'com.google.firebase.firebase-perf'
-apply plugin: 'io.fabric'
 
 android {
     compileSdkVersion rootProject.ext.compileSdkVersion
@@ -31,7 +31,7 @@ android {
     defaultConfig {
         applicationId "net.nurik.roman.muzei"
         minSdkVersion 23
-        targetSdkVersion 28
+        targetSdkVersion rootProject.ext.targetSdkVersion
 
         versionName versionProps['name']
         versionCode versionProps['codeWear'].toInteger()
@@ -61,6 +61,9 @@ android {
     buildTypes {
         debug {
             versionNameSuffix " Debug"
+            FirebasePerformance {
+                instrumentationEnabled false
+            }
         }
 
         release {
@@ -80,6 +83,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
 }
 
 dependencies {
@@ -89,19 +95,17 @@ dependencies {
     api "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:$coroutinesVersion"
     implementation "androidx.work:work-runtime-ktx:$workManagerVersion"
     implementation "androidx.core:core-ktx:$coreVersion"
-    implementation "androidx.lifecycle:lifecycle-runtime-ktx:$lifecycleVersion"
     implementation "androidx.lifecycle:lifecycle-livedata-core-ktx:$lifecycleVersion"
     implementation "androidx.fragment:fragment-ktx:$fragmentVersion"
     implementation "androidx.exifinterface:exifinterface:$exifInterfaceVersion"
+    implementation "androidx.preference:preference-ktx:$preferenceVersion"
     implementation "androidx.wear:wear:$wearVersion"
     compileOnly "com.google.android.wearable:wearable:$wearableVersion"
     implementation ("com.google.android.support:wearable:$wearableVersion") {
         exclude module: 'support-v4'
     }
 
-    implementation ("com.google.android.gms:play-services-wearable:$playServicesWearableVersion") {
-        exclude module: 'support-v4'
-    }
+    implementation "com.google.android.gms:play-services-wearable:$playServicesWearableVersion"
 
     implementation project(':muzei-api')
     implementation project(':extensions')

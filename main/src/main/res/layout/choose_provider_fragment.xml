@@ -18,11 +18,13 @@
     android:id="@+id/choose_provider_drawer"
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fitsSystemWindows="true">
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:id="@+id/provider_layout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:fitsSystemWindows="true">
@@ -56,9 +58,10 @@
 
     <fragment
         android:id="@+id/provider_auto_advance"
-        android:name="com.google.android.apps.muzei.AutoAdvanceSettingsFragment"
+        android:name="com.google.android.apps.muzei.AutoAdvanceFragment"
         android:layout_width="300dp"
         android:layout_height="match_parent"
         android:layout_gravity="end"
-        android:fitsSystemWindows="true"/>
+        android:fitsSystemWindows="true"
+        tools:ignore="FragmentTagUsage" /> <!-- See https://issuetracker.google.com/issues/142601969 -->
 </androidx.drawerlayout.widget.DrawerLayout>

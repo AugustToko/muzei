@@ -17,11 +17,11 @@
 package com.google.android.apps.muzei.featuredart
 
 import android.content.Context
-import android.preference.PreferenceManager
 import android.text.format.DateUtils
 import android.util.Log
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.preference.PreferenceManager
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -33,6 +33,7 @@ import com.google.android.apps.muzei.api.provider.Artwork
 import com.google.android.apps.muzei.api.provider.ProviderContract
 import com.google.android.apps.muzei.featuredart.BuildConfig.FEATURED_ART_AUTHORITY
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONException
@@ -94,7 +95,7 @@ class FeaturedArtWorker(
                 Log.d(TAG, "Enqueuing next artwork with delay of " +
                     DateUtils.formatElapsedTime(TimeUnit.MILLISECONDS.toSeconds(delay)))
             }
-            val workManager = WorkManager.getInstance()
+            val workManager = WorkManager.getInstance(context)
             workManager.enqueueUniqueWork(
                     TAG,
                     ExistingWorkPolicy.REPLACE,
@@ -107,21 +108,18 @@ class FeaturedArtWorker(
         }
     }
 
-    override val coroutineContext = SINGLE_THREAD_CONTEXT
-
-    override suspend fun doWork(): Result {
+    override suspend fun doWork() = withContext(SINGLE_THREAD_CONTEXT) {
         val jsonObject: JSONObject?
         try {
             jsonObject = fetchJsonObject(QUERY_URL)
-            val imageUri = jsonObject.optString(KEY_IMAGE_URI) ?: return Result.success()
-            val artwork = Artwork().apply {
-                persistentUri = imageUri.toUri()
-                token = jsonObject.optString(KEY_TOKEN).takeUnless { it.isEmpty() } ?: imageUri
-                title = jsonObject.optString(KEY_TITLE)
-                byline = jsonObject.optString(KEY_BYLINE)
-                attribution = jsonObject.optString(KEY_ATTRIBUTION)
-                webUri = jsonObject.optString(KEY_DETAILS_URI)?.toUri()
-            }
+            val imageUri = jsonObject.optString(KEY_IMAGE_URI) ?: return@withContext Result.success()
+            val artwork = Artwork(
+                persistentUri = imageUri.toUri(),
+                token = jsonObject.optString(KEY_TOKEN).takeUnless { it.isEmpty() } ?: imageUri,
+                title = jsonObject.optString(KEY_TITLE),
+                byline = jsonObject.optString(KEY_BYLINE),
+                attribution = jsonObject.optString(KEY_ATTRIBUTION),
+                webUri = jsonObject.optString(KEY_DETAILS_URI).takeUnless { it.isEmpty() }?.toUri())
 
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "Adding new artwork: $imageUri")
@@ -130,13 +128,13 @@ class FeaturedArtWorker(
                     .addArtwork(artwork)
         } catch (e: JSONException) {
             Log.e(TAG, "Error reading JSON", e)
-            return Result.retry()
+            return@withContext Result.retry()
         } catch (e: IOException) {
             Log.e(TAG, "Error reading JSON", e)
-            return Result.retry()
+            return@withContext Result.retry()
         }
 
-        val nextTime: Date? = jsonObject.optString("nextTime")?.takeUnless {
+        val nextTime: Date? = jsonObject.optString("nextTime").takeUnless {
             it.isEmpty()
         }?.run {
             if (length > 4 && this[length - 3] == ':') {
@@ -168,7 +166,7 @@ class FeaturedArtWorker(
         sp.edit {
             putLong(PREF_NEXT_UPDATE_MILLIS, nextUpdateMillis)
         }
-        return Result.success()
+        Result.success()
     }
 
     @Throws(IOException::class, JSONException::class)

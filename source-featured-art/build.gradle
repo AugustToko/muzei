@@ -23,9 +23,8 @@ dependencies {
     api "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
     implementation "androidx.core:core-ktx:$coreVersion"
-    implementation ("androidx.work:work-runtime-ktx:$workManagerVersion") {
-        exclude module: 'fragment'
-    }
+    implementation "androidx.preference:preference-ktx:$preferenceVersion"
+    implementation "androidx.work:work-runtime-ktx:$workManagerVersion"
     implementation project(':muzei-api')
     implementation project(':extensions')
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
@@ -54,5 +53,8 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
     }
 }

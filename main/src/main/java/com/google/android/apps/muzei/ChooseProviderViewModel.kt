@@ -28,6 +28,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
 import androidx.lifecycle.viewModelScope
+import com.google.android.apps.muzei.room.Artwork
 import com.google.android.apps.muzei.room.InstalledProvidersLiveData
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.room.Provider
@@ -36,7 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import net.nurik.roman.muzei.BuildConfig.SOURCES_AUTHORITY
+import net.nurik.roman.muzei.BuildConfig.LEGACY_AUTHORITY
 import net.nurik.roman.muzei.R
 import java.util.concurrent.Executors
 
@@ -111,9 +112,9 @@ class ChooseProviderViewModel(application: Application) : AndroidViewModel(appli
             return@Comparator -1
         }
         // The SourceArtProvider should always the last provider listed
-        if (p1.authority == SOURCES_AUTHORITY) {
+        if (p1.authority == LEGACY_AUTHORITY) {
             return@Comparator 1
-        } else if (p2.authority == SOURCES_AUTHORITY) {
+        } else if (p2.authority == LEGACY_AUTHORITY) {
             return@Comparator -1
         }
         // Then put providers from Muzei on top
@@ -130,7 +131,9 @@ class ChooseProviderViewModel(application: Application) : AndroidViewModel(appli
         p1.title.compareTo(p2.title)
     }
 
-    private suspend fun updateProviders(providerInfos: List<android.content.pm.ProviderInfo>) {
+    private suspend fun updateProvidersFromInfo(
+            providerInfos: List<android.content.pm.ProviderInfo>
+    ) {
         val context = getApplication<Application>()
         val pm = context.packageManager
         val newProviders = HashMap<String, ProviderInfo>().apply {
@@ -179,7 +182,7 @@ class ChooseProviderViewModel(application: Application) : AndroidViewModel(appli
         val allProvidersObserver = Observer<List<android.content.pm.ProviderInfo>> { providerInfos ->
             if (providerInfos != null) {
                 viewModelScope.launch(singleThreadContext) {
-                    updateProviders(providerInfos)
+                    updateProvidersFromInfo(providerInfos)
                     withContext(Dispatchers.Main) {
                         startObserving()
                     }
@@ -205,7 +208,7 @@ class ChooseProviderViewModel(application: Application) : AndroidViewModel(appli
         }
         val currentArtworkByProviderLiveData = MuzeiDatabase.getInstance(application).artworkDao()
                 .currentArtworkByProvider
-        val currentArtworkByProviderObserver = Observer<List<com.google.android.apps.muzei.room.Artwork>> { artworkByProvider ->
+        val currentArtworkByProviderObserver = Observer<List<Artwork>> { artworkByProvider ->
             if (artworkByProvider != null) {
                 viewModelScope.launch(singleThreadContext) {
                     val artworkMap = HashMap<String, Uri>()
@@ -243,7 +246,7 @@ class ChooseProviderViewModel(application: Application) : AndroidViewModel(appli
     val providers : LiveData<List<ProviderInfo>> = mutableProviders
 
     internal fun refreshDescription(authority: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(singleThreadContext) {
             val updatedDescription = ProviderManager.getDescription(getApplication(), authority)
             currentProviders[authority]?.let { providerInfo ->
                 if (providerInfo.description != updatedDescription) {

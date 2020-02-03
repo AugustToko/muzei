@@ -38,8 +38,8 @@ class UnsplashExampleWorker(
     companion object {
         private const val TAG = "UnsplashExample"
 
-        internal fun enqueueLoad() {
-            val workManager = WorkManager.getInstance()
+        internal fun enqueueLoad(context: Context) {
+            val workManager = WorkManager.getInstance(context)
             workManager.enqueue(OneTimeWorkRequestBuilder<UnsplashExampleWorker>()
                     .setConstraints(Constraints.Builder()
                             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -65,15 +65,14 @@ class UnsplashExampleWorker(
                 applicationContext, UNSPLASH_AUTHORITY)
         val attributionString = applicationContext.getString(R.string.attribution)
         providerClient.addArtwork(photos.map { photo ->
-            Artwork().apply {
-                token = photo.id
-                title = photo.description ?: attributionString
-                byline = photo.user.name
-                attribution = if (photo.description != null) attributionString else null
-                persistentUri = photo.urls.full.toUri()
-                webUri = photo.links.webUri
-                metadata = photo.user.links.webUri.toString()
-            }
+            Artwork(
+                    token = photo.id,
+                    title = photo.description ?: attributionString,
+                    byline = photo.user.name,
+                    attribution = if (photo.description != null) attributionString else null,
+                    persistentUri = photo.urls.full.toUri(),
+                    webUri = photo.links.webUri,
+                    metadata = photo.user.links.webUri.toString())
         })
         return Result.success()
     }

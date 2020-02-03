@@ -19,7 +19,6 @@ package com.google.android.apps.muzei.complications
 import android.content.Intent
 import android.graphics.drawable.Icon
 import android.os.Build
-import android.preference.PreferenceManager
 import android.support.wearable.complications.ComplicationData
 import android.support.wearable.complications.ComplicationManager
 import android.support.wearable.complications.ComplicationProviderService
@@ -29,6 +28,7 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.TaskStackBuilder
 import androidx.core.content.edit
 import androidx.core.os.bundleOf
+import androidx.preference.PreferenceManager
 import com.google.android.apps.muzei.FullScreenActivity
 import com.google.android.apps.muzei.ProviderChangedReceiver
 import com.google.android.apps.muzei.datalayer.ActivateMuzeiIntentService
@@ -74,12 +74,12 @@ class ArtworkComplicationProviderService : ComplicationProviderService() {
         val preferences = PreferenceManager.getDefaultSharedPreferences(this)
         val complications = preferences.getStringSet(KEY_COMPLICATION_IDS,
                 null) ?: TreeSet()
-        complications.add(Integer.toString(complicationId))
+        complications.add(complicationId.toString())
         preferences.edit { putStringSet(KEY_COMPLICATION_IDS, complications) }
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "addComplication: $complications")
         }
-        ArtworkComplicationWorker.scheduleComplicationUpdate()
+        ArtworkComplicationWorker.scheduleComplicationUpdate(this)
     }
 
     override fun onComplicationDeactivated(complicationId: Int) {
@@ -90,13 +90,13 @@ class ArtworkComplicationProviderService : ComplicationProviderService() {
         val preferences = PreferenceManager.getDefaultSharedPreferences(this)
         val complications = preferences.getStringSet(KEY_COMPLICATION_IDS,
                 null) ?: TreeSet()
-        complications.remove(Integer.toString(complicationId))
+        complications.remove(complicationId.toString())
         preferences.edit { putStringSet(KEY_COMPLICATION_IDS, complications) }
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "Current complications: $complications")
         }
         if (complications.isEmpty()) {
-            ArtworkComplicationWorker.cancelComplicationUpdate()
+            ArtworkComplicationWorker.cancelComplicationUpdate(this)
             ProviderChangedWorker.removePersistentListener(this, "complication_artwork")
             ProviderChangedReceiver.onVisibleChanged(this)
         }

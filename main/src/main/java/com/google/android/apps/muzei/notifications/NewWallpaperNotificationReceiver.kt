@@ -24,7 +24,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
 import android.os.Build
-import android.preference.PreferenceManager
 import android.provider.Settings
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -34,14 +33,15 @@ import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.os.bundleOf
+import androidx.preference.PreferenceManager
 import com.google.android.apps.muzei.ArtDetailOpenLiveData
 import com.google.android.apps.muzei.ArtworkInfoRedirectActivity
+import com.google.android.apps.muzei.legacy.LegacySourceManager
+import com.google.android.apps.muzei.legacy.allowsNextArtwork
 import com.google.android.apps.muzei.render.ContentUriImageLoader
 import com.google.android.apps.muzei.room.MuzeiDatabase
 import com.google.android.apps.muzei.room.getCommands
 import com.google.android.apps.muzei.room.sendAction
-import com.google.android.apps.muzei.sources.SourceManager
-import com.google.android.apps.muzei.sources.allowsNextArtwork
 import com.google.android.apps.muzei.util.goAsync
 import com.google.firebase.analytics.FirebaseAnalytics
 import net.nurik.roman.muzei.R
@@ -52,7 +52,7 @@ class NewWallpaperNotificationReceiver : BroadcastReceiver() {
         const val PREF_ENABLED = "new_wallpaper_notification_enabled"
         private const val PREF_LAST_READ_NOTIFICATION_ARTWORK_ID = "last_read_notification_artwork_id"
 
-        internal const val NOTIFICATION_CHANNEL = "new_wallpaper"
+        private const val NOTIFICATION_CHANNEL = "new_wallpaper"
         private const val NOTIFICATION_ID = 1234
 
         private const val ACTION_MARK_NOTIFICATION_READ = "com.google.android.apps.muzei.action.NOTIFICATION_DELETED"
@@ -309,7 +309,7 @@ class NewWallpaperNotificationReceiver : BroadcastReceiver() {
                     FirebaseAnalytics.getInstance(context).logEvent(
                             "next_artwork", bundleOf(
                             FirebaseAnalytics.Param.CONTENT_TYPE to "notification"))
-                    SourceManager.nextArtwork(context)
+                    LegacySourceManager.getInstance(context).nextArtwork()
                 }
                 ACTION_USER_COMMAND -> triggerUserCommandFromRemoteInput(context, intent)
             }

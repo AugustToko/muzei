@@ -15,6 +15,8 @@
  */
 
 apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'org.jetbrains.dokka'
 apply plugin: 'maven'
 apply plugin: 'signing'
 
@@ -33,7 +35,8 @@ allprojects { ext."signing.password" = props["signing.password"] }
 allprojects { ext."signing.secretKeyRingFile" = props["signing.secretKeyRingFile"] }
 
 dependencies {
-    api "androidx.annotation:annotation:1.0.2"
+    api "androidx.annotation:annotation:1.1.0"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion"
 }
 android {
     compileSdkVersion rootProject.ext.compileSdkVersion
@@ -53,51 +56,71 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_7
-        targetCompatibility JavaVersion.VERSION_1_7
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 }
 
-task androidJavadoc(type: Javadoc) {
-    source = android.sourceSets.main.java.srcDirs
-    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
+dokka {
+    outputFormat = 'html'
+    outputDirectory = "$buildDir/dokka"
 
-    configure(options) {
-        windowTitle = "Muzei API"
-        docTitle = "Muzei API"
-        noTree = true
-        noNavBar = true
-        noHelp = true
-        noDeprecated = true
+    configuration {
+        externalDocumentationLink {
+            url = new URL("https://developer.android.com/reference/")
+            packageListUrl = new URL("https://developer.android.com/reference/android/support/package-list")
+        }
+
+        perPackageOption {
+            prefix = "com.google.android.apps.muzei.api.internal"
+            suppress = true
+        }
     }
+
+    /* TODO Re-enable prettifying the generated documentation
     doLast {
         copy {
             from "javadoc-scripts"
-            into new File(destinationDir, "resources")
+            into new File(outputDirectory, "resources")
             include "prettify.*"
             include "javadoc_stylesheet.css"
         }
         exec {
-            commandLine "python", "javadoc-scripts/tweak_javadoc_html.py", destinationDir.toString()
+            commandLine "python", "javadoc-scripts/tweak_javadoc_html.py", outputDirectory.toString()
         }
         copy {
             from "javadoc-scripts"
-            into destinationDir
+            into outputDirectory
             include "index.html"
+        }
+    }
+     */
+}
+
+task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
+    outputFormat = 'javadoc'
+    outputDirectory = "$buildDir/javadoc"
+
+    configuration {
+        externalDocumentationLink {
+            url = new URL("https://developer.android.com/reference/")
+            packageListUrl = new URL("https://developer.android.com/reference/android/support/package-list")
+        }
+
+        perPackageOption {
+            prefix = "com.google.android.apps.muzei.api.internal"
+            suppress = true
+        }
+        perPackageOption {
+            prefix = "com.google.android.apps.muzei.api.BuildConfig"
+            suppress = true
         }
     }
 }
 
-// Add in dependency classpath
-afterEvaluate {
-    androidJavadoc.classpath += files(android.libraryVariants.collect { variant ->
-        variant.javaCompile.classpath.files
-    })
-}
-
-task javadocJar(type: Jar, dependsOn: androidJavadoc) {
+task javadocJar(type: Jar, dependsOn: dokkaJavadoc) {
     classifier = 'javadoc'
-    from androidJavadoc.destinationDir
+    from dokkaJavadoc.outputDirectory
 }
 
 task sourcesJar(type: Jar) {

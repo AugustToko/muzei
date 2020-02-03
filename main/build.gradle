@@ -17,8 +17,8 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-kapt'
+apply plugin: 'com.google.firebase.crashlytics'
 apply plugin: 'com.google.firebase.firebase-perf'
-apply plugin: 'io.fabric'
 apply plugin: 'androidx.navigation.safeargs.kotlin'
 
 project.archivesBaseName = "muzei"
@@ -42,9 +42,8 @@ android {
         multiDexEnabled true
         wearAppUnbundled true
 
-        def sourcesAuthorityValue = "com.google.android.apps.muzei.sources"
-        manifestPlaceholders = [sourcesAuthority: sourcesAuthorityValue]
-        buildConfigField "String", "SOURCES_AUTHORITY", "\"${sourcesAuthorityValue}\""
+        def legacyAuthorityValue = "com.google.android.apps.muzei.legacy"
+        buildConfigField "String", "LEGACY_AUTHORITY", "\"${legacyAuthorityValue}\""
 
         buildConfigField "String", "DEVICE_TYPE", "\"android\""
     }
@@ -67,6 +66,9 @@ android {
     buildTypes {
         debug {
             versionNameSuffix " Debug"
+            FirebasePerformance {
+                instrumentationEnabled false
+            }
         }
 
         release {
@@ -93,6 +95,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
 }
 
 dependencies {
@@ -101,28 +106,29 @@ dependencies {
     api "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
     api "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:$coroutinesVersion"
     implementation "androidx.multidex:multidex:$multidexVersion"
-    implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
-    implementation "com.github.bumptech.glide:glide:$glideVersion"
+    implementation "io.coil-kt:coil:$coilVersion"
     implementation "com.google.android.gms:play-services-wearable:$playServicesWearableVersion"
-    implementation "com.twofortyfouram:android-plugin-api-for-locale:1.0.4"
-    implementation "com.davemorrissey.labs:subsampling-scale-image-view:3.10.0"
+    implementation "com.twofortyfouram:android-plugin-api-for-locale:$localeVersion"
+    implementation "com.davemorrissey.labs:subsampling-scale-image-view-androidx:$subsamplingVersion"
     implementation "androidx.core:core-ktx:$coreVersion"
     implementation "androidx.fragment:fragment-ktx:$fragmentVersion"
     implementation "androidx.appcompat:appcompat:$appCompatVersion"
+    implementation "androidx.drawerlayout:drawerlayout:$drawerLayoutVersion"
     implementation "androidx.recyclerview:recyclerview:$recyclerViewVersion"
+    implementation "androidx.swiperefreshlayout:swiperefreshlayout:$swipeRefreshLayoutVersion"
     implementation "com.google.android.material:material:$materialVersion"
     implementation "androidx.browser:browser:$browserVersion"
     implementation "androidx.exifinterface:exifinterface:$exifInterfaceVersion"
     implementation "androidx.constraintlayout:constraintlayout:$constraintLayoutVersion"
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion"
     implementation "androidx.lifecycle:lifecycle-common-java8:$lifecycleVersion"
-    implementation "androidx.lifecycle:lifecycle-runtime-ktx:$lifecycleVersion"
-    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion"
+    implementation "androidx.preference:preference-ktx:$preferenceVersion"
     implementation "androidx.navigation:navigation-fragment-ktx:$navigationVersion"
     implementation "androidx.navigation:navigation-ui-ktx:$navigationVersion"
 
     implementation project(':muzei-api')
     implementation project(':extensions')
+    implementation project(':legacy-common')
     implementation project(':android-client-common')
     implementation project(':source-featured-art')
     implementation project(':source-gallery')

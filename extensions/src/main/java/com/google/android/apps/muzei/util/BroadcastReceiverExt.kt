@@ -17,13 +17,21 @@
 package com.google.android.apps.muzei.util
 
 import android.content.BroadcastReceiver
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 
-fun BroadcastReceiver.goAsync(block: suspend () -> Unit) {
+fun BroadcastReceiver.goAsync(
+        coroutineScope: CoroutineScope = GlobalScope,
+        block: suspend () -> Unit
+) {
     val result = goAsync()
-    GlobalScope.launch {
-        block()
-        result.finish()
+    coroutineScope.launch {
+        try {
+            block()
+        } finally {
+            // Always call finish(), even if the coroutineScope was cancelled
+            result.finish()
+        }
     }
 }

@@ -16,14 +16,16 @@
 
 package com.google.android.apps.muzei.util
 
-fun Float.constrain(min: Float, max: Float): Float = Math.max(min, Math.min(max, this))
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+
+fun Float.constrain(min: Float, max: Float): Float = max(min, min(max, this))
 
 fun interpolate(x1: Float, x2: Float, f: Float): Float = x1 + (x2 - x1) * f
 
 fun uninterpolate(x1: Float, x2: Float, v: Float): Float {
-    if (x2 - x1 == 0f) {
-        throw IllegalArgumentException("Can't reverse interpolate with domain size of 0")
-    }
+    require(x2 - x1 != 0f) { "Can't reverse interpolate with domain size of 0" }
     return (v - x1) / (x2 - x1)
 }
 
@@ -35,5 +37,5 @@ fun Int.roundMult4() = this + 2 and 0x03.inv()
 // see http://stackoverflow.com/a/7446742/102703
 fun Int.divideRoundUp(divisor: Int): Int {
     val sign = (if (this > 0) 1 else -1) * if (divisor > 0) 1 else -1
-    return sign * (Math.abs(this) + Math.abs(divisor) - 1) / Math.abs(divisor)
+    return sign * (abs(this) + abs(divisor) - 1) / abs(divisor)
 }

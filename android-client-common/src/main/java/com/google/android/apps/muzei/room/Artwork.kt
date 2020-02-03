@@ -34,7 +34,7 @@ import java.util.Date
  * Artwork's representation in Room
  */
 @Entity(indices = [(Index(value = ["providerAuthority"]))])
-class Artwork(
+data class Artwork(
         @field:TypeConverters(UriTypeConverter::class)
         val imageUri: Uri
 ) {
@@ -50,8 +50,7 @@ class Artwork(
 
     var attribution: String? = null
 
-    @MuzeiContract.Artwork.MetaFontType
-    var metaFont = MuzeiContract.Artwork.META_FONT_TYPE_DEFAULT
+    var metaFont = ""
 
     @TypeConverters(DateTypeConverter::class)
     @ColumnInfo(name = "date_added")

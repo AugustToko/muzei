@@ -16,12 +16,16 @@
 
 package com.google.android.apps.muzei
 
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
-import androidx.navigation.findNavController
+import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.google.android.apps.muzei.browse.BrowseProviderFragment
 import com.google.android.apps.muzei.settings.EffectsFragment
@@ -35,16 +39,39 @@ import net.nurik.roman.muzei.R
  */
 class MainFragment : Fragment(R.layout.main_fragment), ChooseProviderFragment.Callbacks {
 
+    private val darkStatusBarColor by lazy {
+        ContextCompat.getColor(requireContext(), R.color.theme_primary_dark)
+    }
     private lateinit var bottomNavigationView: BottomNavigationView
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         // Set up the container for the child fragments
         val container = view.findViewById<View>(R.id.container)
-        val navController = container.findNavController()
+        val navHostFragment = childFragmentManager.findFragmentById(R.id.container) as NavHostFragment
+        val navController = navHostFragment.navController
+        val navGraph = navController.navInflater.inflate(R.navigation.main_navigation)
+        if (requireActivity().isPreviewMode) {
+            // Make the Effects screen the start destination when
+            // coming from the Settings button on the Live Wallpaper picker
+            navGraph.startDestination = R.id.main_effects
+        }
+        navController.graph = navGraph
 
         // Set up the bottom nav
         bottomNavigationView = view.findViewById(R.id.bottom_nav)
         bottomNavigationView.setupWithNavController(navController)
+        // Set up an OnDestinationChangedListener for the status bar color
+        navController.addOnDestinationChangedListener { _, _, args ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                requireActivity().window.statusBarColor =
+                        if (args?.getBoolean("useDarkStatusBar") == true) {
+                            darkStatusBarColor
+                        } else {
+                            Color.TRANSPARENT
+                        }
+            }
+        }
+        // Set up an OnDestinationChangedListener for analytics
         navController.addOnDestinationChangedListener { _, destination, _ ->
             when (destination.id) {
                 R.id.main_art_details -> {
@@ -85,16 +112,18 @@ class MainFragment : Fragment(R.layout.main_fragment), ChooseProviderFragment.Ca
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
             // Ensure the container gets the appropriate insets
             ViewCompat.dispatchApplyWindowInsets(container,
-                    insets.replaceSystemWindowInsets(insets.systemWindowInsetLeft,
+                    WindowInsetsCompat.Builder(insets).setSystemWindowInsets(Insets.of(
+                            insets.systemWindowInsetLeft,
                             insets.systemWindowInsetTop,
                             insets.systemWindowInsetRight,
-                            0))
+                            0)).build())
             ViewCompat.dispatchApplyWindowInsets(bottomNavigationView,
-                    insets.replaceSystemWindowInsets(insets.systemWindowInsetLeft,
+                    WindowInsetsCompat.Builder(insets).setSystemWindowInsets(Insets.of(
+                            insets.systemWindowInsetLeft,
                             0,
                             insets.systemWindowInsetRight,
-                            insets.systemWindowInsetBottom))
-            insets.consumeSystemWindowInsets().consumeDisplayCutout()
+                            insets.systemWindowInsetBottom)).build())
+            insets.consumeSystemWindowInsets()?.consumeDisplayCutout()
         }
 
         // Listen for visibility changes to know when to hide our views

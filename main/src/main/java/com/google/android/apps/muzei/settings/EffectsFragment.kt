@@ -20,15 +20,17 @@ import android.app.Activity
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.widget.Toolbar
 import androidx.core.content.edit
-import androidx.core.view.ViewCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.FragmentStatePagerAdapter
 import androidx.lifecycle.MutableLiveData
 import androidx.viewpager.widget.ViewPager
+import com.google.android.apps.muzei.isPreviewMode
 import com.google.android.apps.muzei.render.MuzeiBlurRenderer
+import com.google.android.apps.muzei.util.toast
 import com.google.android.material.tabs.TabLayout
 import net.nurik.roman.muzei.R
 
@@ -68,6 +70,9 @@ class EffectsFragment : Fragment(R.layout.effects_fragment) {
                                 sp.getInt(Prefs.PREF_LOCK_GREY_AMOUNT, MuzeiBlurRenderer.DEFAULT_GREY))
                     }
                 }
+                requireContext().toast(R.string.toast_link_effects, Toast.LENGTH_LONG)
+            } else {
+                requireContext().toast(R.string.toast_link_effects_off, Toast.LENGTH_LONG)
             }
             // Update the menu item
             updateLinkEffectsMenuItem(effectsLinked)
@@ -120,11 +125,8 @@ class EffectsFragment : Fragment(R.layout.effects_fragment) {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        // Ensure we have the latest insets
-        ViewCompat.requestApplyInsets(view)
-
         toolbar = view.findViewById(R.id.toolbar)
-        if (requireActivity() is SettingsActivity) {
+        if (requireActivity().isPreviewMode) {
             toolbar.setNavigationIcon(R.drawable.ic_ab_done)
             toolbar.navigationContentDescription = getString(R.string.done)
             toolbar.setNavigationOnClickListener {
