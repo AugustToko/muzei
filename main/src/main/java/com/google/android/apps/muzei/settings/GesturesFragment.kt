@@ -18,17 +18,17 @@ package com.google.android.apps.muzei.settings
 
 import android.os.Bundle
 import android.view.View
-import android.widget.RadioGroup
 import androidx.appcompat.graphics.drawable.DrawerArrowDrawable
-import androidx.appcompat.widget.Toolbar
 import androidx.core.content.edit
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import net.nurik.roman.muzei.R
+import net.nurik.roman.muzei.databinding.GesturesFragmentBinding
 
 class GesturesFragment: Fragment(R.layout.gestures_fragment) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        view.findViewById<Toolbar>(R.id.gestures_toolbar).apply {
+        val binding = GesturesFragmentBinding.bind(view)
+        binding.toolbar.apply {
             navigationIcon = DrawerArrowDrawable(requireContext()).apply {
                 progress = 1f
             }
@@ -38,20 +38,19 @@ class GesturesFragment: Fragment(R.layout.gestures_fragment) {
         }
 
         val prefs = Prefs.getSharedPreferences(requireContext())
-        val doubleTap = view.findViewById<RadioGroup>(R.id.gestures_double_tap_action)
         val doubleTapValue = prefs.getString(Prefs.PREF_DOUBLE_TAP,
                 Prefs.PREF_TAP_ACTION_TEMP)
-        doubleTap.check(when (doubleTapValue) {
-            Prefs.PREF_TAP_ACTION_TEMP -> R.id.gestures_double_tap_temporary_disable
-            Prefs.PREF_TAP_ACTION_NEXT -> R.id.gestures_double_tap_next
-            Prefs.PREF_TAP_ACTION_VIEW_DETAILS -> R.id.gestures_double_tap_view_details
-            else -> R.id.gestures_double_tap_none
+        binding.doubleTapAction.check(when (doubleTapValue) {
+            Prefs.PREF_TAP_ACTION_TEMP -> R.id.double_tap_temporary_disable
+            Prefs.PREF_TAP_ACTION_NEXT -> R.id.double_tap_next
+            Prefs.PREF_TAP_ACTION_VIEW_DETAILS -> R.id.double_tap_view_details
+            else -> R.id.double_tap_none
         })
-        doubleTap.setOnCheckedChangeListener { _, index ->
+        binding.doubleTapAction.setOnCheckedChangeListener { _, index ->
             val newValue = when(index) {
-                R.id.gestures_double_tap_temporary_disable -> Prefs.PREF_TAP_ACTION_TEMP
-                R.id.gestures_double_tap_next -> Prefs.PREF_TAP_ACTION_NEXT
-                R.id.gestures_double_tap_view_details -> Prefs.PREF_TAP_ACTION_VIEW_DETAILS
+                R.id.double_tap_temporary_disable -> Prefs.PREF_TAP_ACTION_TEMP
+                R.id.double_tap_next -> Prefs.PREF_TAP_ACTION_NEXT
+                R.id.double_tap_view_details -> Prefs.PREF_TAP_ACTION_VIEW_DETAILS
                 else -> Prefs.PREF_TAP_ACTION_NONE
             }
             prefs.edit {
@@ -59,20 +58,19 @@ class GesturesFragment: Fragment(R.layout.gestures_fragment) {
             }
         }
 
-        val threeFingerTap = view.findViewById<RadioGroup>(R.id.gestures_three_finger_tap_action)
         val threeFingerTapValue = prefs.getString(Prefs.PREF_THREE_FINGER_TAP,
                 Prefs.PREF_TAP_ACTION_NONE)
-        threeFingerTap.check(when (threeFingerTapValue) {
-            Prefs.PREF_TAP_ACTION_TEMP -> R.id.gestures_three_finger_tap_temporary_disable
-            Prefs.PREF_TAP_ACTION_NEXT -> R.id.gestures_three_finger_tap_next
-            Prefs.PREF_TAP_ACTION_VIEW_DETAILS -> R.id.gestures_three_finger_tap_view_details
-            else -> R.id.gestures_three_finger_tap_none
+        binding.threeFingerTapAction.check(when (threeFingerTapValue) {
+            Prefs.PREF_TAP_ACTION_TEMP -> R.id.three_finger_tap_temporary_disable
+            Prefs.PREF_TAP_ACTION_NEXT -> R.id.three_finger_tap_next
+            Prefs.PREF_TAP_ACTION_VIEW_DETAILS -> R.id.three_finger_tap_view_details
+            else -> R.id.three_finger_tap_none
         })
-        threeFingerTap.setOnCheckedChangeListener { _, index ->
+        binding.threeFingerTapAction.setOnCheckedChangeListener { _, index ->
             val newValue = when(index) {
-                R.id.gestures_three_finger_tap_temporary_disable -> Prefs.PREF_TAP_ACTION_TEMP
-                R.id.gestures_three_finger_tap_next -> Prefs.PREF_TAP_ACTION_NEXT
-                R.id.gestures_three_finger_tap_view_details -> Prefs.PREF_TAP_ACTION_VIEW_DETAILS
+                R.id.three_finger_tap_temporary_disable -> Prefs.PREF_TAP_ACTION_TEMP
+                R.id.three_finger_tap_next -> Prefs.PREF_TAP_ACTION_NEXT
+                R.id.three_finger_tap_view_details -> Prefs.PREF_TAP_ACTION_VIEW_DETAILS
                 else -> Prefs.PREF_TAP_ACTION_NONE
             }
             prefs.edit {
